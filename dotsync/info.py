@@ -1,7 +1,7 @@
 from os.path import expanduser
 import socket
 
-__version__ = '1.0.10'
+__version__ = '1.0.11'
 __author__ = 'Harvey'
 __author_email__ = 'harvey.wanghy@gmail.com'
 __url__ = 'https://github.com/HarveyGG/dotsync'
