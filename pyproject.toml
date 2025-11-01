@@ -1,0 +1,78 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dotsync"
+version = "2.2.9"
+description = "A comprehensive solution to managing your dotfiles"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT License (Non-Commercial Use Only)"}
+authors = [
+    {name = "Harvey", email = "harvey.wanghy@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: Other/Proprietary License",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/HarveyGG/dotsync"
+Documentation = "https://dotsync.readthedocs.io"
+Repository = "https://github.com/HarveyGG/dotsync"
+Issues = "https://github.com/HarveyGG/dotsync/issues"
+
+[project.scripts]
+dotsync = "dotsync.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dotsync"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/dotsync",
+    "/pkg/completion",
+    "README.md",
+    "LICENSE",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--strict-config",
+]
+
+[tool.coverage.run]
+source = ["dotsync"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+]
+

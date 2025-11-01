@@ -29,6 +29,13 @@ jobs:
           pip install pytest
           pip install -e .
       
+      - name: Setup GPG for encryption tests
+        run: |
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          echo "allow-loopback-pinentry" > ~/.gnupg/gpg-agent.conf
+          gpg-connect-agent reloadagent /bye || true
+      
       - name: Show Python and environment info
         run: |
           python --version

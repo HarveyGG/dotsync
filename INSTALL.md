@@ -1,84 +1,29 @@
 # Installation Guide
 
-dotsync can be installed in several ways:
-
 ## Quick Install (Recommended)
-
-The easiest way to install dotsync is using our installation script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HarveyGG/dotsync/main/install.sh | bash
 ```
 
-This script will:
-- Check for Python 3.6+
-- Install pip if needed
-- Install dotsync using pip
-- Provide instructions for adding to PATH if needed
+**What it does:**
+- Installs `uv` (if not present)
+- Creates dotsync launcher
+- On first run, automatically downloads Python + dotsync
+- No Python installation required
 
-## Homebrew (macOS)
-
-If you have Homebrew installed:
+## Homebrew (macOS/Linux)
 
 ```bash
+brew tap HarveyGG/tap
 brew install dotsync
 ```
 
-Or if you want to install from the formula directly:
-
-```bash
-brew install HarveyGG/dotsync/dotsync
-```
-
-## pip
+## pip (Alternative)
 
 ```bash
 pip install dotsync
 ```
-
-Or with pip3:
-
-```bash
-pip3 install dotsync
-```
-
-### User Installation (No sudo)
-
-To install without requiring sudo:
-
-```bash
-pip install --user dotsync
-```
-
-Then add `~/.local/bin` to your PATH:
-
-```bash
-# For bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# For zsh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-## Manual Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/HarveyGG/dotsync.git
-   cd dotsync
-   ```
-
-2. Install:
-   ```bash
-   python3 setup.py install
-   ```
-
-   Or in development mode:
-   ```bash
-   pip install -e .
-   ```
 
 ## Verification
 
@@ -91,9 +36,10 @@ dotsync --help
 
 ## Requirements
 
-- Python 3.6 or later
 - Git
 - GnuPG (optional, for encryption support)
+
+Note: Python is not required - it will be automatically managed by dotsync.
 
 ## Troubleshooting
 

@@ -8,13 +8,15 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v3
       
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.11'
       
       - name: Install dependencies
         run: |
@@ -23,6 +25,28 @@ jobs:
       
       - name: Build package
         run: python -m build
+      
+      - name: Get version and calculate SHA256
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Calculate SHA256 for the tarball
+          SHA256=$(sha256sum dist/dotsync-${VERSION}.tar.gz | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "SHA256: $SHA256"
+      
+      - name: Update Homebrew Formula
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          SHA256=${{ steps.version.outputs.sha256 }}
+          
+          # Update version and SHA256 in dotsync.rb
+          sed -i "s|url \"https://files.pythonhosted.org/packages/source/d/dotsync/dotsync-.*\.tar\.gz\"|url \"https://files.pythonhosted.org/packages/source/d/dotsync/dotsync-${VERSION}.tar.gz\"|" dotsync.rb
+          sed -i "s|sha256 \"\"|sha256 \"${SHA256}\"|" dotsync.rb
+          
+          cat dotsync.rb
       
       - name: Publish to PyPI
         env:
@@ -33,6 +57,37 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/*
+          files: |
+            dist/*
+            install.sh
+            dotsync.rb
           generate_release_notes: true
+          body: |
+            ## Installation Methods
+            
+            ### Quick Install (Recommended)
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/HarveyGG/dotsync/main/install.sh | bash
+            ```
+            
+            ### Homebrew (macOS/Linux)
+            ```bash
+            brew install HarveyGG/tap/dotsync
+            ```
+            
+            Or download the `dotsync.rb` formula from this release and install locally:
+            ```bash
+            brew install ./dotsync.rb
+            ```
+            
+            ### pip
+            ```bash
+            pip install dotsync
+            ```
+            
+            ### From Source
+            Download the source tarball and install:
+            ```bash
+            pip install dotsync-${{ steps.version.outputs.version }}.tar.gz
+            ```
 

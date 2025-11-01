@@ -17,12 +17,14 @@ class TestMain:
 
     def test_init_home(self, tmp_path, caplog):
         home = tmp_path / 'home'
-        repo = tmp_path / 'repo'
         os.makedirs(home)
-        os.makedirs(repo)
 
-        assert main(args=['init'], cwd=str(home), home=str(home)) != 0
-        assert 'safety checks failed' in caplog.text
+        # When running init from home directory, it should create ~/.dotfiles
+        assert main(args=['init'], cwd=str(home), home=str(home)) == 0
+        dotfiles = home / '.dotfiles'
+        assert dotfiles.is_dir()
+        assert (dotfiles / '.git').is_dir()
+        assert (dotfiles / 'filelist').is_file()
 
     def test_init(self, tmp_path, caplog):
         home = tmp_path / 'home'
