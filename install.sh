@@ -1,160 +1,179 @@
 #!/bin/bash
 #
-# dotsync Installation Script
-# Installs dotsync using pip in a safe and non-invasive way
+# dotsync Installer
+# Installs dotsync with zero dependencies
+#
+# This script will:
+# 1. Install uv (if not present)
+# 2. Create dotsync launcher
+# 3. No Python installation required
 #
 
 set -e
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-# Error handling
-error() {
-    echo -e "${RED}Error: $1${NC}" >&2
+BIN_DIR="${HOME}/.local/bin"
+UV_BIN="${HOME}/.cargo/bin"
+
+error() { echo -e "${RED}✗ $1${NC}" >&2; exit 1; }
+info() { echo -e "${GREEN}✓ $1${NC}"; }
+warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
+section() { echo ""; echo -e "${BLUE}━━━ $1 ━━━${NC}"; echo ""; }
+
+# Install uv if needed
+install_uv() {
+    if command -v uv &> /dev/null; then
+        info "uv already installed: $(uv --version)"
+        return 0
+    fi
+    
+    section "Installing uv"
+    
+    if curl -LsSf https://astral.sh/uv/install.sh | sh; then
+        export PATH="$UV_BIN:$PATH"
+        info "uv installed successfully"
+    else
+        error "Failed to install uv"
+    fi
+}
+
+# Create dotsync launcher
+create_launcher() {
+    section "Creating dotsync launcher"
+    
+    mkdir -p "$BIN_DIR"
+    
+    cat > "$BIN_DIR/dotsync" << 'LAUNCHER_EOF'
+#!/bin/bash
+# dotsync launcher
+
+# Ensure uv is in PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "Error: uv is not installed"
+    echo "Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1
-}
+fi
 
-info() {
-    echo -e "${GREEN}$1${NC}"
-}
-
-warn() {
-    echo -e "${YELLOW}$1${NC}"
-}
-
-# Check if Python 3 is available
-check_python() {
-    if command -v python3 &> /dev/null; then
-        PYTHON_CMD="python3"
-    elif command -v python &> /dev/null; then
-        # Check if it's Python 3
-        if python -c "import sys; exit(0 if sys.version_info >= (3, 6) else 1)" 2>/dev/null; then
-            PYTHON_CMD="python"
-        else
-            error "Python 3.6+ is required but not found. Please install Python 3.6 or later."
-        fi
-    else
-        error "Python 3 is required but not found. Please install Python 3.6 or later."
-    fi
+# Run dotsync via uvx (downloads Python + dotsync automatically)
+exec uvx dotsync "$@"
+LAUNCHER_EOF
     
-    # Check version
-    PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | awk '{print $2}')
-    info "Found Python $PYTHON_VERSION"
-}
-
-# Check if pip is available
-check_pip() {
-    if command -v pip3 &> /dev/null; then
-        PIP_CMD="pip3"
-    elif command -v pip &> /dev/null; then
-        PIP_CMD="pip"
-    else
-        warn "pip not found. Attempting to install pip..."
-        if ! $PYTHON_CMD -m ensurepip --default-pip; then
-            error "Failed to install pip. Please install pip manually and try again."
-        fi
-        PIP_CMD="$PYTHON_CMD -m pip"
-    fi
-    
-    info "Using $PIP_CMD"
-}
-
-# Install dotsync
-install_dotsync() {
-    info "Installing dotsync..."
-    
-    # Use --user flag to avoid requiring sudo
-    if $PIP_CMD install --user --upgrade dotsync; then
-        info "dotsync installed successfully!"
-    else
-        error "Failed to install dotsync. You may need to run with sudo or install pip packages."
-    fi
+    chmod +x "$BIN_DIR/dotsync"
+    info "Launcher created at $BIN_DIR/dotsync"
 }
 
 # Verify installation
-verify_installation() {
-    # Add user's local bin to PATH for this check
-    USER_BIN="$HOME/.local/bin"
+verify() {
+    section "Verifying installation"
     
-    if [ -d "$USER_BIN" ] && [ -f "$USER_BIN/dotsync" ]; then
-        info "Installation verified: dotsync found at $USER_BIN/dotsync"
-        return 0
-    fi
+    export PATH="$BIN_DIR:$UV_BIN:$PATH"
     
-    # Try to find dotsync in PATH
     if command -v dotsync &> /dev/null; then
-        DOTSYNC_PATH=$(command -v dotsync)
-        info "Installation verified: dotsync found at $DOTSYNC_PATH"
-        return 0
+        info "dotsync command is available"
+        
+        # Test run (will download Python + dotsync on first run)
+        echo "Testing dotsync..."
+        if timeout 30 dotsync --version &> /dev/null; then
+            info "dotsync is working correctly"
+            return 0
+        fi
     fi
     
-    warn "Could not verify installation. You may need to add $USER_BIN to your PATH."
+    warn "Could not verify dotsync command"
     return 1
 }
 
-# Check PATH setup
+# Check PATH
 check_path() {
-    USER_BIN="$HOME/.local/bin"
+    local needs_update=false
     
-    if [ -d "$USER_BIN" ]; then
-        if echo "$PATH" | grep -q "$USER_BIN"; then
-            info "PATH is already configured correctly"
-        else
-            warn ""
-            warn "⚠️  Important: Add the following to your shell configuration file:"
-            warn "   (~/.bashrc, ~/.zshrc, etc.)"
-            warn ""
-            warn "   export PATH=\"\$HOME/.local/bin:\$PATH\""
-            warn ""
-        fi
+    # Check BIN_DIR
+    if ! echo "$PATH" | grep -q "$BIN_DIR"; then
+        needs_update=true
+    fi
+    
+    # Check UV_BIN
+    if ! echo "$PATH" | grep -q "$UV_BIN"; then
+        needs_update=true
+    fi
+    
+    if [ "$needs_update" = true ]; then
+        warn ""
+        warn "Please add these directories to your PATH:"
+        warn ""
+        
+        # Detect shell
+        case "$(basename "$SHELL")" in
+            bash)
+                RC_FILE="$HOME/.bashrc"
+                warn "Add to $RC_FILE:"
+                warn '  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"'
+                ;;
+            zsh)
+                RC_FILE="$HOME/.zshrc"
+                warn "Add to $RC_FILE:"
+                warn '  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"'
+                ;;
+            fish)
+                RC_FILE="$HOME/.config/fish/config.fish"
+                warn "Add to $RC_FILE:"
+                warn '  set -x PATH $HOME/.local/bin $HOME/.cargo/bin $PATH'
+                ;;
+            *)
+                RC_FILE="$HOME/.profile"
+                warn "Add to $RC_FILE:"
+                warn '  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"'
+                ;;
+        esac
+        
+        warn ""
+        warn "Then run: source $RC_FILE"
+        warn ""
     fi
 }
 
-# Show version
-show_version() {
-    if command -v dotsync &> /dev/null || [ -f "$HOME/.local/bin/dotsync" ]; then
-        DOTSYNC_CMD=$(command -v dotsync 2>/dev/null || echo "$HOME/.local/bin/dotsync")
-        if [ -f "$DOTSYNC_CMD" ]; then
-            VERSION=$($DOTSYNC_CMD --version 2>&1 || echo "unknown")
-            info "Installed version: $VERSION"
-        fi
-    fi
-}
-
-# Main installation process
+# Main
 main() {
     echo ""
-    info "╔════════════════════════════════════════╗"
-    info "║      dotsync Installation Script       ║"
-    info "╚════════════════════════════════════════╝"
+    echo -e "${BLUE}╔═══════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║   dotsync Installer                   ║${NC}"
+    echo -e "${BLUE}╚═══════════════════════════════════════╝${NC}"
     echo ""
     
-    check_python
-    check_pip
-    install_dotsync
-    
+    info "Platform: $(uname -s) $(uname -m)"
     echo ""
-    info "════════════════════════════════════════"
     
-    if verify_installation; then
-        show_version
-        check_path
-        echo ""
-        info "✅ Installation complete!"
-        info "   Run 'dotsync --help' to get started"
-        echo ""
-    else
-        echo ""
-        warn "⚠️  Installation may have completed, but dotsync command not found in PATH"
-        warn "   Try adding $HOME/.local/bin to your PATH"
-        echo ""
-    fi
+    install_uv
+    create_launcher
+    
+    section "Installation Complete!"
+    
+    echo "How it works:"
+    echo "  • First run: uvx downloads Python + dotsync automatically"
+    echo "  • Future runs: Uses cached version (instant startup)"
+    echo "  • No system Python needed!"
+    echo ""
+    
+    check_path
+    
+    info "✅ dotsync is ready!"
+    echo ""
+    info "Try it now:"
+    info "  export PATH=\"\$HOME/.local/bin:\$HOME/.cargo/bin:\$PATH\""
+    info "  dotsync --help"
+    echo ""
+    
+    warn "Note: First run may take ~30 seconds to download Python + dotsync"
+    echo ""
 }
 
-# Run main function
 main
 

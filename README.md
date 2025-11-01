@@ -21,7 +21,7 @@
 - **🔄 Multi-Machine Support** - Share files between machines or keep separate versions in the same repo
 - **🔒 Encryption Support** - Encrypt sensitive dotfiles using GnuPG
 - **🔗 Flexible Linking** - Use symlinks or copy files (hard mode) based on your needs
-- **📦 Zero Dependencies** - Only requires Python and Git
+- **📦 Zero Dependencies** - No Python installation required
 - **🚀 Simple Commands** - Intuitive CLI with commands like `add`, `update`, `restore`, `encrypt`
 - **🧪 Well Tested** - Comprehensive test suite ensuring reliability
 - **📚 Great Documentation** - Full documentation available at [ReadTheDocs](https://dotsync.readthedocs.io)
@@ -34,30 +34,25 @@
 curl -fsSL https://raw.githubusercontent.com/HarveyGG/dotsync/main/install.sh | bash
 ```
 
-### Homebrew (macOS)
+**Features:**
+- ✅ No Python installation required
+- ✅ Zero dependencies
+- ✅ Cross-platform (macOS, Linux)
+- ⚡ First run ~30s, then instant
+
+### Homebrew (macOS/Linux)
 
 ```bash
+brew tap HarveyGG/tap
 brew install dotsync
 ```
 
-### pip
+### pip (Alternative)
 
 ```bash
 pip install dotsync
 ```
 
-### Manual Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/HarveyGG/dotsync.git
-   cd dotsync
-   ```
-
-2. Install:
-   ```bash
-   python3 setup.py install
-   ```
 
 ## 📖 Quick Start
 

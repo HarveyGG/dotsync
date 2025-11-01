@@ -1,0 +1,86 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-homebrew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+      
+      - name: Download updated formula from release
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          # Wait a bit for release assets to be available
+          sleep 10
+          
+          # Download the dotsync.rb from the release
+          curl -L -o dotsync.rb \
+            "https://github.com/HarveyGG/dotsync/releases/download/v${VERSION}/dotsync.rb"
+          
+          # Verify the file was downloaded
+          if [ ! -f dotsync.rb ]; then
+            echo "Failed to download dotsync.rb"
+            exit 1
+          fi
+          
+          echo "Downloaded formula:"
+          cat dotsync.rb
+      
+      - name: Update Homebrew Tap
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          
+          if [ -z "$TAP_GITHUB_TOKEN" ]; then
+            echo "Warning: TAP_GITHUB_TOKEN not configured"
+            echo "Skipping Homebrew tap update"
+            echo "To enable automatic updates, configure TAP_GITHUB_TOKEN secret"
+            exit 0
+          fi
+          
+          # Configure git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Clone the tap repository
+          echo "Cloning homebrew-tap repository..."
+          if ! git clone https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/HarveyGG/homebrew-tap.git; then
+            echo "Error: Failed to clone homebrew-tap repository"
+            echo "Please ensure:"
+            echo "  1. Repository exists: https://github.com/HarveyGG/homebrew-tap"
+            echo "  2. TAP_GITHUB_TOKEN has proper permissions"
+            exit 1
+          fi
+          
+          cd homebrew-tap
+          
+          # Create Formula directory if it doesn't exist
+          mkdir -p Formula
+          
+          # Copy the updated formula
+          cp ../dotsync.rb Formula/dotsync.rb
+          
+          # Commit and push
+          git add Formula/dotsync.rb
+          
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update dotsync to v${VERSION}
+
+Updated by GitHub Actions from dotsync release workflow.
+
+Release: https://github.com/HarveyGG/dotsync/releases/tag/v${VERSION}"
+            git push origin main
+            echo "✅ Successfully updated Homebrew tap to v${VERSION}"
+          fi
+

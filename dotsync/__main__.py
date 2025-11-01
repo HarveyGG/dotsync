@@ -948,15 +948,29 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
     logging.basicConfig(format=logging.BASIC_FORMAT, level=args.verbose_level)
     logging.debug(f'ran with arguments {args}')
 
-    # For init command, use specified directory or default to ~/.dotfiles
+    # For init command, use specified directory or default to ~/.dotfiles or cwd
     # For other commands, automatically find repository
     if args.action == Actions.INIT:
         if hasattr(args, 'init_directory') and args.init_directory:
             # User specified a directory
             repo = os.path.abspath(os.path.expanduser(args.init_directory))
         else:
-            # Default to ~/.dotfiles
-            repo = os.path.join(home, '.dotfiles')
+            # Check if current directory looks like it should be the repo
+            # (for testing and explicit init in desired directory)
+            current_has_git_or_filelist = (
+                os.path.isdir(os.path.join(cwd, '.git')) or 
+                os.path.exists(os.path.join(cwd, 'filelist'))
+            )
+            default_dotfiles = os.path.join(home, '.dotfiles')
+            
+            # If cwd is home directory, use ~/.dotfiles (safer)
+            # Otherwise use cwd if it has git/filelist or is different from home
+            if cwd == home:
+                repo = default_dotfiles
+            elif current_has_git_or_filelist or cwd != default_dotfiles:
+                repo = cwd
+            else:
+                repo = default_dotfiles
         
         # Create directory if it doesn't exist
         if not os.path.exists(repo):
