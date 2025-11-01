@@ -3,6 +3,9 @@ name: Update Homebrew Tap
 on:
   release:
     types: [published, created, released]
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       version:
@@ -13,17 +16,31 @@ on:
 jobs:
   update-homebrew:
     runs-on: ubuntu-latest
+    # Only run after Release workflow succeeded when triggered via workflow_run
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
       
       - name: Extract version from tag
         id: version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # Fallback to latest published release when the release was created by another workflow (GITHUB_TOKEN)
+            VERSION=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "${{ github.api_url }}/repos/${{ github.repository }}/releases/latest" | jq -r '.tag_name' | sed 's/^v//')
           else
-            VERSION=$(echo ${GITHUB_REF} | sed 's/refs\/tags\/v//')
+            VERSION=$(echo "${GITHUB_REF}" | sed 's#refs/tags/v##')
+          fi
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "Failed to determine version" >&2
+            exit 1
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
