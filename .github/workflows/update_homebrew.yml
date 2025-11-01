@@ -90,11 +90,9 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Update dotsync to v${VERSION}
-
-Updated by GitHub Actions from dotsync release workflow.
-
-Release: https://github.com/HarveyGG/dotsync/releases/tag/v${VERSION}"
+            git commit -m "Update dotsync to v${VERSION}" \
+                       -m "Updated by GitHub Actions from dotsync release workflow." \
+                       -m "Release: https://github.com/HarveyGG/dotsync/releases/tag/v${VERSION}"
             git push origin main
             echo "✅ Successfully updated Homebrew tap to v${VERSION}"
           fi

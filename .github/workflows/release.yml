@@ -21,7 +21,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install build twine
+          pip install build twine pytest
+      
+      - name: Run tests
+        run: |
+          pip install -e .
+          pytest tests/ -v --tb=short
+        continue-on-error: false
       
       - name: Build package
         run: python -m build

@@ -86,20 +86,8 @@ update_pyproject() {
     fi
 }
 
-# Update version in dotsync.rb (Homebrew formula)
-update_homebrew_formula() {
-    local version=$1
-    
-    # Update URL version (SHA256 will be filled by CI)
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s|dotsync-[0-9]\+\.[0-9]\+\.[0-9]\+\.tar\.gz|dotsync-${version}.tar.gz|g" dotsync.rb
-        # Reset SHA256 to empty (will be filled by CI)
-        sed -i '' 's/sha256 ".*"/sha256 ""/' dotsync.rb
-    else
-        sed -i "s|dotsync-[0-9]\+\.[0-9]\+\.[0-9]\+\.tar\.gz|dotsync-${version}.tar.gz|g" dotsync.rb
-        sed -i 's/sha256 ".*"/sha256 ""/' dotsync.rb
-    fi
-}
+# Note: dotsync.rb will be updated automatically by GitHub Actions
+# (update_homebrew.yml workflow after release is published)
 
 # Verify changes
 verify_changes() {
@@ -113,11 +101,6 @@ verify_changes() {
     echo ""
     echo "Checking pyproject.toml:"
     grep "^version = " pyproject.toml
-    
-    echo ""
-    echo "Checking dotsync.rb:"
-    grep "url " dotsync.rb
-    grep "sha256" dotsync.rb
 }
 
 # Git status check
@@ -185,8 +168,8 @@ main() {
     info "Updating pyproject.toml..."
     update_pyproject "$NEW_VERSION"
     
-    info "Updating dotsync.rb..."
-    update_homebrew_formula "$NEW_VERSION"
+    echo ""
+    info "Note: dotsync.rb will be updated automatically by GitHub Actions"
     
     # Verify
     verify_changes "$NEW_VERSION"
@@ -195,13 +178,13 @@ main() {
     section "Git operations"
     
     echo "Files changed:"
-    git diff --stat dotsync/info.py pyproject.toml dotsync.rb
+    git diff --stat dotsync/info.py pyproject.toml
     echo ""
     
     read -p "Commit changes? [Y/n] " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-        git add dotsync/info.py pyproject.toml dotsync.rb
+        git add dotsync/info.py pyproject.toml
         git commit -m "Bump version to v${NEW_VERSION}"
         info "Changes committed"
         
