@@ -8,30 +8,45 @@ jobs:
   update-homebrew:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
       - name: Extract version from tag
         id: version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=$(echo ${GITHUB_REF} | sed 's/refs\/tags\/v//')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
       
-      - name: Download updated formula from release
+      - name: Download source tarball and calculate SHA256
+        id: sha256
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          # Wait a bit for release assets to be available
-          sleep 10
           
-          # Download the dotsync.rb from the release
-          curl -L -o dotsync.rb \
-            "https://github.com/HarveyGG/dotsync/releases/download/v${VERSION}/dotsync.rb"
+          # Wait for GitHub to generate the source tarball
+          echo "Waiting for GitHub to generate source tarball..."
+          sleep 30
           
-          # Verify the file was downloaded
-          if [ ! -f dotsync.rb ]; then
-            echo "Failed to download dotsync.rb"
-            exit 1
-          fi
+          # Download the source tarball from GitHub
+          echo "Downloading source tarball..."
+          curl -L -o dotsync-${VERSION}.tar.gz \
+            "https://github.com/HarveyGG/dotsync/archive/v${VERSION}.tar.gz"
           
-          echo "Downloaded formula:"
+          # Calculate SHA256
+          SHA256=$(sha256sum dotsync-${VERSION}.tar.gz | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "SHA256: $SHA256"
+      
+      - name: Update Homebrew Formula
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          SHA256=${{ steps.sha256.outputs.sha256 }}
+          
+          # Update version and SHA256 in dotsync.rb
+          sed -i "s|url \"https://github.com/HarveyGG/dotsync/archive/v.*\.tar\.gz\"|url \"https://github.com/HarveyGG/dotsync/archive/v${VERSION}.tar.gz\"|" dotsync.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" dotsync.rb
+          
+          echo "Updated formula:"
           cat dotsync.rb
       
       - name: Update Homebrew Tap

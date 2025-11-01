@@ -26,27 +26,12 @@ jobs:
       - name: Build package
         run: python -m build
       
-      - name: Get version and calculate SHA256
+      - name: Get version
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
-          # Calculate SHA256 for the tarball
-          SHA256=$(sha256sum dist/dotsync-cli-${VERSION}.tar.gz | cut -d' ' -f1)
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-          echo "SHA256: $SHA256"
-      
-      - name: Update Homebrew Formula
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          SHA256=${{ steps.version.outputs.sha256 }}
-          
-          # Update version and SHA256 in dotsync.rb
-          sed -i "s|url \"https://files.pythonhosted.org/packages/source/d/dotsync-cli/dotsync-cli-.*\.tar\.gz\"|url \"https://files.pythonhosted.org/packages/source/d/dotsync-cli/dotsync-cli-${VERSION}.tar.gz\"|" dotsync.rb
-          sed -i "s|sha256 \"\"|sha256 \"${SHA256}\"|" dotsync.rb
-          
-          cat dotsync.rb
+          echo "Version: $VERSION"
       
       - name: Publish to PyPI
         env:
@@ -60,7 +45,6 @@ jobs:
           files: |
             dist/*
             install.sh
-            dotsync.rb
           generate_release_notes: true
           body: |
             ## Installation Methods
@@ -72,12 +56,8 @@ jobs:
             
             ### Homebrew (macOS/Linux)
             ```bash
-            brew install HarveyGG/tap/dotsync
-            ```
-            
-            Or download the `dotsync.rb` formula from this release and install locally:
-            ```bash
-            brew install ./dotsync.rb
+            brew tap HarveyGG/tap
+            brew install dotsync
             ```
             
             ### pip
