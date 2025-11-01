@@ -63,7 +63,7 @@ if ! command -v uv &> /dev/null; then
 fi
 
 # Run dotsync via uvx (downloads Python + dotsync automatically)
-exec uvx dotsync "$@"
+exec uvx dotsync-cli "$@"
 LAUNCHER_EOF
     
     chmod +x "$BIN_DIR/dotsync"

@@ -12,7 +12,7 @@ curl -fsSL https://raw.githubusercontent.com/HarveyGG/dotsync/main/install.sh | 
 brew install dotsync
 
 # Or using pip
-pip install dotsync
+pip install dotsync-cli
 ```
 
 ## Your First Dotfiles Repository

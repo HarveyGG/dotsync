@@ -5,7 +5,7 @@ with open('README.md', 'r') as readme:
     long_description = readme.read()
 
 setuptools.setup(
-        name = 'dotsync',
+        name = 'dotsync-cli',
         version = info.__version__,
         author = info.__author__,
         author_email = info.__author_email__,

@@ -50,7 +50,7 @@ brew install dotsync
 ### pip (Alternative)
 
 ```bash
-pip install dotsync
+pip install dotsync-cli
 ```
 
 
@@ -228,7 +228,7 @@ For commercial licensing inquiries, please contact: harvey.wanghy@gmail.com
 
 - [Documentation](https://dotsync.readthedocs.io)
 - [Issue Tracker](https://github.com/HarveyGG/dotsync/issues)
-- [PyPI Package](https://pypi.org/project/dotsync/)
+- [PyPI Package](https://pypi.org/project/dotsync-cli/)
 
 ---
 

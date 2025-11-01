@@ -22,7 +22,7 @@ brew install dotsync
 ## pip (Alternative)
 
 ```bash
-pip install dotsync
+pip install dotsync-cli
 ```
 
 ## Verification
@@ -69,8 +69,8 @@ If `dotsync` command is not found after installation:
 
 If you encounter permission errors during installation:
 
-- Use `--user` flag: `pip install --user dotsync`
-- Or use `sudo`: `sudo pip install dotsync` (not recommended)
+- Use `--user` flag: `pip install --user dotsync-cli`
+- Or use `sudo`: `sudo pip install dotsync-cli` (not recommended)
 
 ### Python Version Issues
 

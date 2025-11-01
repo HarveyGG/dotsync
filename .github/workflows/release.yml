@@ -33,7 +33,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           
           # Calculate SHA256 for the tarball
-          SHA256=$(sha256sum dist/dotsync-${VERSION}.tar.gz | cut -d' ' -f1)
+          SHA256=$(sha256sum dist/dotsync-cli-${VERSION}.tar.gz | cut -d' ' -f1)
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
           echo "SHA256: $SHA256"
       
@@ -43,7 +43,7 @@ jobs:
           SHA256=${{ steps.version.outputs.sha256 }}
           
           # Update version and SHA256 in dotsync.rb
-          sed -i "s|url \"https://files.pythonhosted.org/packages/source/d/dotsync/dotsync-.*\.tar\.gz\"|url \"https://files.pythonhosted.org/packages/source/d/dotsync/dotsync-${VERSION}.tar.gz\"|" dotsync.rb
+          sed -i "s|url \"https://files.pythonhosted.org/packages/source/d/dotsync-cli/dotsync-cli-.*\.tar\.gz\"|url \"https://files.pythonhosted.org/packages/source/d/dotsync-cli/dotsync-cli-${VERSION}.tar.gz\"|" dotsync.rb
           sed -i "s|sha256 \"\"|sha256 \"${SHA256}\"|" dotsync.rb
           
           cat dotsync.rb
@@ -82,12 +82,12 @@ jobs:
             
             ### pip
             ```bash
-            pip install dotsync
+            pip install dotsync-cli
             ```
             
             ### From Source
             Download the source tarball and install:
             ```bash
-            pip install dotsync-${{ steps.version.outputs.version }}.tar.gz
+            pip install dotsync-cli-${{ steps.version.outputs.version }}.tar.gz
             ```
 
