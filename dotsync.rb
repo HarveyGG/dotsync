@@ -11,7 +11,7 @@ class Dotsync < Formula
   def install
     (bin/"dotsync").write <<~EOS
       #!/bin/bash
-      exec #{Formula["uv"].opt_bin}/uvx dotsync-cli "$@"
+      exec #{Formula["uv"].opt_bin}/uvx --from dotsync-cli dotsync "$@"
     EOS
     
     chmod 0755, bin/"dotsync"
