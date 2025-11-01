@@ -1,0 +1,46 @@
+name: publish-aur
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  arch:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          path: repo
+
+      # install needed packages to update aur repo
+      - run: |
+          pacman -Sy --noconfirm git openssh
+
+      # setup ssh credentials
+      - run: |
+          mkdir -p /root/.ssh
+          echo "$AUR_SSH_KEY" > /root/.ssh/id_rsa
+          chmod 600 /root/.ssh/id_rsa
+          echo "$AUR_FINGERPRINT" > /root/.ssh/known_hosts
+        shell: bash
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+          AUR_FINGERPRINT: ${{ secrets.AUR_FINGERPRINT }}
+
+      # clone aur repo, update PKGBUILD and .SRCINFO and commit + push changes
+      - run: |
+          git config --global user.name "Github Actions"
+          git config --global user.email "github-actions@dotgit.com"
+          git clone "ssh://aur@aur.archlinux.org/$PKG_NAME.git"
+          cp repo/pkg/arch/PKGBUILD "$PKG_NAME"
+          chown -R "nobody:nobody" "$PKG_NAME"
+          cd "$PKG_NAME"
+          sudo -u nobody makepkg --printsrcinfo > .SRCINFO
+          git add PKGBUILD .SRCINFO
+          git commit -m "version bump"
+          git push
+        shell: bash
+        env:
+          PKG_NAME: dotgit
