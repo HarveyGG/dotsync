@@ -21,7 +21,7 @@
 - **🔄 Multi-Machine Support** - Share files between machines or keep separate versions in the same repo
 - **🔒 Encryption Support** - Encrypt sensitive dotfiles using GnuPG
 - **🔗 Flexible Linking** - Use symlinks or copy files (hard mode) based on your needs
-- **📦 Zero Dependencies** - No Python installation required
+- **📦 Zero Dependencies**
 - **🚀 Simple Commands** - Intuitive CLI with commands like `add`, `update`, `restore`, `encrypt`
 - **🧪 Well Tested** - Comprehensive test suite ensuring reliability
 - **📚 Great Documentation** - Full documentation available at [ReadTheDocs](https://dotsync.readthedocs.io)
@@ -204,13 +204,13 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ```bash
 git clone https://github.com/HarveyGG/dotsync.git
 cd dotsync
-pip install -e .
+uv sync
 ```
 
 ### Running Tests
 
 ```bash
-pytest tests/
+uv run pytest tests/
 ```
 
 ## 📝 License

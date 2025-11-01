@@ -49,3 +49,16 @@ docs/_static/
 # dotsync specific
 *.pyc
 *.pyo
+
+# uv
+.venv/
+uv.lock
+
+# Coverage
+htmlcov/
+.coverage
+
+# Internal documentation (not for distribution)
+GITHUB_ACTIONS_SETUP.md
+HOMEBREW_TAP.md
+RELEASE_CHECKLIST.md
