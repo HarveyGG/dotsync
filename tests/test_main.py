@@ -25,6 +25,7 @@ class TestMain:
         assert dotfiles.is_dir()
         assert (dotfiles / '.git').is_dir()
         assert (dotfiles / 'filelist').is_file()
+        assert (dotfiles / 'README.md').is_file()
 
     def test_init(self, tmp_path, caplog):
         home = tmp_path / 'home'
@@ -37,7 +38,9 @@ class TestMain:
 
         assert (repo / '.git').is_dir()
         assert (repo / 'filelist').is_file()
-        assert git.last_commit() == 'Added filelist'
+        assert (repo / 'README.md').is_file()
+        commit_msg = git.last_commit()
+        assert 'filelist' in commit_msg.lower()
 
         assert 'existing git repo' not in caplog.text
         assert 'existing filelist' not in caplog.text
@@ -54,11 +57,14 @@ class TestMain:
 
         assert (repo / '.git').is_dir()
         assert (repo / 'filelist').is_file()
-        assert git.last_commit() == 'Added filelist'
+        assert (repo / 'README.md').is_file()
+        commit_msg = git.last_commit()
+        assert 'filelist' in commit_msg.lower()
         assert len(git.commits()) == 1
 
         assert 'existing git repo' in caplog.text
         assert 'existing filelist' in caplog.text
+        assert 'existing README.md' in caplog.text
 
     def test_update_home_norepo(self, tmp_path):
         home, repo = self.setup_repo(tmp_path, 'file')
