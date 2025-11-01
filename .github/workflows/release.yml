@@ -16,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       
       - name: Install dependencies
         run: |
@@ -35,6 +35,8 @@ jobs:
         run: |
           git config --global user.name "Test User"
           git config --global user.email "test@example.org"
+          git config --global init.defaultBranch main
+          git config --global advice.detachedHead false
       
       - name: Run tests
         run: pytest tests/ -v --tb=short
@@ -63,6 +65,8 @@ jobs:
             dist/*
             install.sh
           generate_release_notes: true
+          draft: false
+          prerelease: false
           body: |
             ## Installation Methods
             
