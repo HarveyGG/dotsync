@@ -142,6 +142,24 @@ class Git:
     def push(self):
         self.run('git push')
 
+    def has_unpushed_commits(self):
+        """Check if there are commits that haven't been pushed to remote"""
+        if not self.has_remote():
+            return False
+        try:
+            branch = self.run('git rev-parse --abbrev-ref HEAD').strip()
+            result = self.run(f'git rev-list --left-right --count {branch}...origin/{branch}')
+            if result.strip():
+                ahead, behind = map(int, result.strip().split('\t'))
+                return ahead > 0
+            return False
+        except subprocess.CalledProcessError:
+            # Remote branch might not exist yet, check if we have any commits
+            try:
+                return bool(self.run('git log --oneline').strip())
+            except subprocess.CalledProcessError:
+                return False
+
     def diff(self, ignore=[]):
         if not self.has_changes():
             return ['no changes']

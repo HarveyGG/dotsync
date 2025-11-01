@@ -915,8 +915,21 @@ def show_diff(repo, filelist, plugins, plugin_dirs, home, git, args):
 
 def commit_changes(repo, git):
     """Commit changes to git repository"""
-    if not git.has_changes():
+    has_new_changes = git.has_changes()
+    
+    if not has_new_changes:
         logging.warning('no changes detected in repo, not creating commit')
+        # Even if no new changes, check if there are unpushed commits to push
+        if git.has_remote() and git.has_unpushed_commits():
+            ans = input('No new changes, but you have unpushed commits. Push to remote? [Yn] ')
+            ans = ans if ans else 'y'
+            if ans.lower() == 'y':
+                try:
+                    git.push()
+                    logging.info('successfully pushed to git remote')
+                except Exception as e:
+                    logging.error(f'Failed to push to remote: {e}')
+                    return 1
         return 0
     
     git.add()
