@@ -10,9 +10,13 @@ Thank you for your interest in contributing to dotsync! This document provides g
    git clone https://github.com/yourusername/dotsync.git
    cd dotsync
    ```
-3. Install in development mode:
+3. Install uv if not present:
    ```bash
-   pip install -e .
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+4. Install dependencies:
+   ```bash
+   uv sync
    ```
 
 ## Making Changes
@@ -25,11 +29,11 @@ Thank you for your interest in contributing to dotsync! This document provides g
 3. Write or update tests as needed
 4. Ensure all tests pass:
    ```bash
-   pytest tests/
+   uv run pytest tests/
    ```
 5. Check for linting errors:
    ```bash
-   make lint  # or flake8 dotsync/ tests/
+   make lint
    ```
 6. Commit your changes with a clear commit message
 
@@ -39,13 +43,16 @@ We use pytest for testing. All new features should include tests.
 
 ```bash
 # Run all tests
-pytest tests/
+uv run pytest tests/
 
 # Run specific test file
-pytest tests/test_main.py
+uv run pytest tests/test_main.py
+
+# Run with coverage
+uv run pytest tests/ --cov=dotsync --cov-report=term
 
 # Run with verbose output
-pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ## Code Style
