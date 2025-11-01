@@ -1,0 +1,26 @@
+# Maintainer: Harvey <harvey.wanghy@gmail.com>
+pkgname=dotsync
+pkgver='2.2.9'
+pkgrel=0
+pkgdesc='A comprehensive solution to managing your dotfiles'
+url='https://github.com/HarveyGG/dotsync'
+arch=('any')
+depends=('git' 'python')
+optdepends=('gnupg: encryption support')
+makedepends=('python-setuptools')
+source=("https://files.pythonhosted.org/packages/source/d/dotsync/dotsync-$pkgver.tar.gz")
+md5sums=('SKIP')
+
+build()
+{
+	cd "dotsync-$pkgver"
+	python setup.py build
+}
+
+package()
+{
+	cd "dotsync-$pkgver"
+	python setup.py install --root="$pkgdir/" --optimize=1 --skip-build
+	install -Dm644 pkg/completion/bash.sh -T \
+		"$pkgdir/usr/share/bash-completion/completions/dotsync"
+}
