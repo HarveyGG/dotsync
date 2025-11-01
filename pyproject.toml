@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dotsync"
-version = "2.2.9"
+version = "1.0.0"
 description = "A comprehensive solution to managing your dotfiles"
 readme = "README.md"
 requires-python = ">=3.8"
