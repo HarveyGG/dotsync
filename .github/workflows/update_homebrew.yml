@@ -2,7 +2,13 @@ name: Update Homebrew Tap
 
 on:
   release:
-    types: [published]
+    types: [published, created, released]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to update (e.g., 1.0.6)'
+        required: false
+        type: string
 
 jobs:
   update-homebrew:
@@ -14,7 +20,11 @@ jobs:
       - name: Extract version from tag
         id: version
         run: |
-          VERSION=$(echo ${GITHUB_REF} | sed 's/refs\/tags\/v//')
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=$(echo ${GITHUB_REF} | sed 's/refs\/tags\/v//')
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
       
