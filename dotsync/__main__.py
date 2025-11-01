@@ -300,6 +300,51 @@ def init_repo(repo_dir, flist):
 
     changed = False
 
+    # Create README.md if it doesn't exist
+    readme_path = os.path.join(repo_dir, 'README.md')
+    if not os.path.exists(readme_path):
+        readme_content = """# Dotfiles
+
+This repository is managed by [dotsync](https://github.com/HarveyGG/dotsync), a dotfiles management tool.
+
+## Setup GitHub Repository
+
+To backup your dotfiles to GitHub:
+
+1. Create a new repository on GitHub (e.g., `dotfiles`)
+2. Add the remote to your local repository:
+   ```bash
+   cd ~/.dotfiles
+   git remote add origin git@github.com:YOUR_USERNAME/dotfiles.git
+   ```
+3. Push your files:
+   ```bash
+   dotsync commit
+   # When prompted, answer 'y' to push to remote
+   ```
+
+Alternatively, you can push manually using git commands:
+```bash
+git push -u origin master
+```
+
+## Basic Usage
+
+- Add a file to manage: `dotsync add ~/.zshrc`
+- Update files from home to repo: `dotsync update`
+- Restore files from repo to home: `dotsync restore`
+- Commit changes: `dotsync commit`
+- List managed files: `dotsync list`
+
+For more information, visit the [dotsync documentation](https://github.com/HarveyGG/dotsync).
+"""
+        with open(readme_path, 'w') as f:
+            f.write(readme_content)
+        git.add('README.md')
+        changed = True
+    else:
+        logging.warning('existing README.md, not recreating')
+
     # Create filelist if it doesn't exist
     if not os.path.exists(flist):
         ensure_filelist_exists(flist, create_if_missing=True)
@@ -900,6 +945,13 @@ def commit_changes(repo, git):
             except Exception as e:
                 logging.error(f'Failed to push to remote: {e}')
                 return 1
+    else:
+        logging.info('No remote repository configured.')
+        logging.info('To connect to GitHub:')
+        logging.info('  1. Create a repository on GitHub')
+        logging.info('  2. Run: git remote add origin git@github.com:USERNAME/REPO.git')
+        logging.info('  3. Run: dotsync commit (will prompt to push)')
+        logging.info('See README.md for more details.')
     
     return 0
 
