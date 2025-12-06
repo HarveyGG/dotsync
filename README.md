@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![dotsync](https://img.shields.io/badge/dotsync-1.0.11-blue)
+![dotsync](https://img.shields.io/badge/dotsync-1.0.12-blue)
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-Non--Commercial-blue.svg)
