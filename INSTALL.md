@@ -39,7 +39,7 @@ dotsync --help
 - Git
 - GnuPG (optional, for encryption support)
 
-Note: Python is not required - it will be automatically managed by dotsync.
+**Note:** Python and uv are not required - they will be automatically managed by the installer.
 
 ## Troubleshooting
 
@@ -47,40 +47,50 @@ Note: Python is not required - it will be automatically managed by dotsync.
 
 If `dotsync` command is not found after installation:
 
-1. Check if dotsync is installed:
-   ```bash
-   python3 -m pip list | grep dotsync
-   ```
+**For install.sh users:**
+```bash
+# Add to your PATH
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
-2. Find the installation location:
-   ```bash
-   python3 -m pip show -f dotsync | grep Location
-   ```
+# Add to your shell config (~/.zshrc, ~/.bashrc, etc.)
+echo 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
 
-3. Add the binary directory to your PATH:
-   ```bash
-   # Usually one of these:
-   export PATH="$HOME/.local/bin:$PATH"
-   export PATH="/usr/local/bin:$PATH"
-   export PATH="$(python3 -m site --user-base)/bin:$PATH"
-   ```
+**For Homebrew users:**
+```bash
+# Homebrew should handle PATH automatically
+# If not, try:
+brew doctor
+```
+
+**For pip users:**
+```bash
+# Find installation location
+python3 -m pip show dotsync-cli | grep Location
+
+# Add to PATH (usually one of these)
+export PATH="$HOME/.local/bin:$PATH"
+export PATH="$(python3 -m site --user-base)/bin:$PATH"
+```
+
+### uv Not Found (for install.sh users)
+
+If you see "uv not found" error:
+
+```bash
+# Install uv manually
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or use Homebrew
+brew install uv
+```
 
 ### Permission Errors
 
-If you encounter permission errors during installation:
+If you encounter permission errors:
 
-- Use `--user` flag: `pip install --user dotsync-cli`
-- Or use `sudo`: `sudo pip install dotsync-cli` (not recommended)
-
-### Python Version Issues
-
-Make sure you're using Python 3.6 or later:
-
-```bash
-python3 --version
-```
-
-If you need to install a newer Python version:
-- **macOS**: `brew install python3`
-- **Linux**: Use your distribution's package manager or [pyenv](https://github.com/pyenv/pyenv)
+- **install.sh**: No sudo required, installs to `~/.local/bin`
+- **Homebrew**: May need `sudo` for first-time Homebrew setup
+- **pip**: Use `--user` flag: `pip install --user dotsync-cli`
 

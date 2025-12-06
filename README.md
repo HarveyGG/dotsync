@@ -21,7 +21,7 @@
 - **🔄 Multi-Machine Support** - Share files between machines or keep separate versions in the same repo
 - **🔒 Encryption Support** - Encrypt sensitive dotfiles using GnuPG
 - **🔗 Flexible Linking** - Use symlinks or copy files (hard mode) based on your needs
-- **📦 Zero Dependencies**
+- **📦 Minimal Dependencies** - Only requires `uv` (auto-installed)
 - **🚀 Simple Commands** - Intuitive CLI with commands like `add`, `update`, `restore`, `encrypt`
 - **🧪 Well Tested** - Comprehensive test suite ensuring reliability
 - **📚 Great Documentation** - Full documentation available at [ReadTheDocs](https://dotsync.readthedocs.io)

@@ -8,7 +8,8 @@ Get up and running with dotsync in minutes!
 # Quick install (recommended)
 curl -fsSL https://raw.githubusercontent.com/HarveyGG/dotsync/main/install.sh | bash
 
-# Or using Homebrew (macOS)
+# Or using Homebrew (macOS/Linux)
+brew tap HarveyGG/tap
 brew install dotsync
 
 # Or using pip
