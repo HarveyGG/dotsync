@@ -160,6 +160,51 @@ class TestCalcOps:
         assert not (repo / 'cat1' / 'file').is_symlink()
         assert (repo / 'cat2' / 'file').is_symlink()
 
+    def test_update_multiple_candidates_non_interactive_prefer_master(self, tmp_path):
+        from dotsync.policy import RunPolicy
+        home, repo = self.setup_home_repo(tmp_path)
+        (repo / 'cat1').mkdir()
+        (repo / 'cat2').mkdir()
+        (repo / 'cat1' / 'file').write_text('file1')
+        (repo / 'cat2' / 'file').write_text('file2')
+
+        def fail_if_input(p):
+            raise AssertionError('input called in non-interactive mode')
+        import builtins
+        orig = builtins.input
+        builtins.input = fail_if_input
+        try:
+            policy = RunPolicy(non_interactive=True, candidate='prefer-master')
+            calc = CalcOps(repo, home, PlainPlugin(tmp_path / '.data'), policy=policy)
+            calc.update({'file': ['cat1', 'cat2']}).apply()
+        finally:
+            builtins.input = orig
+
+        assert (repo / 'cat1' / 'file').read_text() == 'file1'
+        assert (repo / 'cat2' / 'file').is_symlink()
+
+    def test_restore_conflict_non_interactive_overwrite(self, tmp_path):
+        from dotsync.policy import RunPolicy
+        home, repo = self.setup_home_repo(tmp_path)
+        os.makedirs(repo / 'cat1')
+        open(repo / 'cat1' / 'file', 'w').close()
+        open(home / 'file', 'w').close()
+
+        def fail_if_input(p):
+            raise AssertionError('input called in non-interactive mode')
+        import builtins
+        orig = builtins.input
+        builtins.input = fail_if_input
+        try:
+            policy = RunPolicy(non_interactive=True, conflict='overwrite')
+            calc = CalcOps(repo, home, PlainPlugin(tmp_path / '.data'), policy=policy)
+            calc.restore({'file': ['cat1', 'cat2']}).apply()
+        finally:
+            builtins.input = orig
+
+        assert (home / 'file').is_symlink()
+        assert (home / 'file').samefile(repo / 'cat1' / 'file')
+
     def test_restore_nomaster_nohome(self, tmp_path, caplog):
         home, repo = self.setup_home_repo(tmp_path)
 

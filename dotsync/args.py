@@ -68,6 +68,8 @@ class Arguments:
                             help=HELP['hard-mode'])
         parser.add_argument('--encrypt', action='store_true',
                             help='encrypt the file (for add command)')
+        parser.add_argument('--non-interactive', action='store_true',
+                            help='skip prompts, use policy defaults')
 
         parser.add_argument('action', choices=[a.value for a in Actions],
                             help=HELP['action'])
@@ -87,6 +89,14 @@ class Arguments:
         parser.add_argument('category', nargs='*',
                             default=['common', info.hostname],
                             help=category_help_extended)
+        parser.add_argument('--conflict', choices=['prompt', 'overwrite', 'keep', 'abort'],
+                            default='prompt',
+                            help='conflict resolution when non-interactive')
+        parser.add_argument('--candidate', choices=['prompt', 'prefer-home', 'prefer-master', 'abort'],
+                            default='prompt',
+                            help='candidate selection when multiple versions exist')
+        parser.add_argument('--keep-going', action='store_true',
+                            help='continue on file errors, report at end')
 
         # parse args
         args = parser.parse_args(args)
@@ -142,6 +152,10 @@ class Arguments:
         self.dry_run = args.dry_run
         self.hard_mode = args.hard
         self.encrypt = getattr(args, 'encrypt', False)
+        self.non_interactive = getattr(args, 'non_interactive', False)
+        self.conflict = getattr(args, 'conflict', 'prompt')
+        self.candidate = getattr(args, 'candidate', 'prompt')
+        self.keep_going = getattr(args, 'keep_going', False)
         self.action = Actions(args.action)
         self.categories = args.category
 

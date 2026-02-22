@@ -5,6 +5,12 @@ import shutil
 import inspect
 
 
+class BatchApplyError(Exception):
+    def __init__(self, errors):
+        self.errors = errors
+        super().__init__(f'{len(errors)} operation(s) failed')
+
+
 class Op(enum.Enum):
     LINK = enum.auto()
     COPY = enum.auto()
@@ -58,7 +64,8 @@ class FileOps:
         self.check_dest_dir(dest)
         self.ops.append((plugin, (source, dest)))
 
-    def apply(self, dry_run=False):
+    def apply(self, dry_run=False, keep_going=False):
+        errors = []
         for op in self.ops:
             op, path = op
 
@@ -73,26 +80,37 @@ class FileOps:
             if dry_run:
                 continue
 
-            if op == Op.LINK:
-                src = os.path.relpath(src, os.path.join(self.wd,
-                                                        os.path.dirname(dest)))
-                os.symlink(src, dest)
-            elif op == Op.COPY:
-                shutil.copyfile(src, dest)
-            elif op == Op.MOVE:
-                os.rename(src, dest)
-            elif op == Op.REMOVE:
-                if os.path.isdir(path):
-                    shutil.rmtree(path)
+            def do_op():
+                if op == Op.LINK:
+                    src_rel = os.path.relpath(src, os.path.join(self.wd, os.path.dirname(dest)))
+                    os.symlink(src_rel, dest)
+                elif op == Op.COPY:
+                    shutil.copyfile(src, dest)
+                elif op == Op.MOVE:
+                    os.rename(src, dest)
+                elif op == Op.REMOVE:
+                    if os.path.isdir(path):
+                        shutil.rmtree(path)
+                    else:
+                        os.remove(path)
+                elif op == Op.MKDIR:
+                    if not os.path.isdir(path):
+                        os.makedirs(path)
+                elif callable(op):
+                    op(src, dest)
+
+            try:
+                do_op()
+            except Exception as e:
+                if keep_going:
+                    errors.append((self.str_op(op, path if type(path) is not tuple else (src, dest)), str(e)))
+                    logging.error(f'Failed: {e}')
                 else:
-                    os.remove(path)
-            elif op == Op.MKDIR:
-                if not os.path.isdir(path):
-                    os.makedirs(path)
-            elif callable(op):
-                op(src, dest)
+                    raise
 
         self.clear()
+        if errors:
+            raise BatchApplyError(errors)
 
     def append(self, other):
         self.ops += other.ops

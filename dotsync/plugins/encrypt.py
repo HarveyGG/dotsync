@@ -15,7 +15,7 @@ class GPG:
         self.password = password
 
     def run(self, cmd):
-        if not type(cmd) is list:
+        if type(cmd) is not list:
             cmd = shlex.split(cmd)
 
         # these are needed to read the password from stdin and to not ask
@@ -211,7 +211,7 @@ class EncryptPlugin(Plugin):
     def remove(self, source, dest):
         self.init_password()
         self.gpg.decrypt(source, dest)
-        os.chmod(dest, self.modes[self.strip_repo(source)])
+        os.chmod(dest, self.modes.get(self.strip_repo(source), 0o644))
 
     # compares the ext_file to repo_file and returns true if they are the same.
     # does this by looking at the repo_file's hash and calculating the hash of

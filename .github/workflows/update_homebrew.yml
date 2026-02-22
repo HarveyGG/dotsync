@@ -32,8 +32,7 @@ jobs:
           elif [ "${{ github.event_name }}" = "release" ]; then
             VERSION="${{ github.event.release.tag_name }}"
             VERSION="${VERSION#v}"
-          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
-            # Fallback to latest published release when the release was created by another workflow (GITHUB_TOKEN)
+          elif [ "${{ github.event_name }}" = "workflow_run" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "${{ github.api_url }}/repos/${{ github.repository }}/releases/latest" | jq -r '.tag_name' | sed 's/^v//')
           else
             VERSION=$(echo "${GITHUB_REF}" | sed 's#refs/tags/v##')

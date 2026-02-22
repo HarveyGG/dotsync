@@ -47,3 +47,27 @@ class TestArguments:
 
         assert Arguments([act]).categories == ['common', socket.gethostname()]
         assert Arguments([act, 'foo']).categories == ['foo']
+
+    def test_non_interactive(self):
+        act = self.valid_actions[0]
+        assert not Arguments([act]).non_interactive
+        assert Arguments(['--non-interactive', act]).non_interactive
+
+    def test_conflict_policy(self):
+        act = self.valid_actions[0]
+        assert Arguments([act]).conflict == 'prompt'
+        assert Arguments(['--conflict', 'overwrite', act]).conflict == 'overwrite'
+        assert Arguments(['--conflict', 'keep', act]).conflict == 'keep'
+        assert Arguments(['--conflict', 'abort', act]).conflict == 'abort'
+
+    def test_candidate_policy(self):
+        act = self.valid_actions[0]
+        assert Arguments([act]).candidate == 'prompt'
+        assert Arguments(['--candidate', 'prefer-home', act]).candidate == 'prefer-home'
+        assert Arguments(['--candidate', 'prefer-master', act]).candidate == 'prefer-master'
+        assert Arguments(['--candidate', 'abort', act]).candidate == 'abort'
+
+    def test_keep_going(self):
+        act = self.valid_actions[0]
+        assert not Arguments([act]).keep_going
+        assert Arguments(['--keep-going', act]).keep_going

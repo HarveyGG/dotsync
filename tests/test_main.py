@@ -630,9 +630,116 @@ class TestMain:
         assert final_filelist_content == initial_filelist_content
         assert '.testfile' in final_filelist_content
 
+    def test_unmanage_directory_prefix(self, tmp_path, caplog):
+        """dotsync unmanage .ssh removes all .ssh/ prefix entries from filelist"""
+        flist = '.ssh/config:ssh\n.ssh/known_hosts:ssh\n'
+        home, repo = self.setup_repo(tmp_path, flist)
+        (home / '.ssh').mkdir()
+        (home / '.ssh' / 'config').write_text('host *')
+        (home / '.ssh' / 'known_hosts').write_text('github.com ssh-ed25519 ...')
+        assert main(args=['update', 'ssh'], cwd=str(repo), home=str(home)) == 0
+        assert (home / '.ssh' / 'config').is_symlink()
+        assert (home / '.ssh' / 'known_hosts').is_symlink()
+
+        assert main(args=['unmanage', '--non-interactive', '.ssh'], cwd=str(repo), home=str(home)) == 0
+        flist_content = (repo / 'filelist').read_text()
+        assert '.ssh/config' not in flist_content
+        assert '.ssh/known_hosts' not in flist_content
+        assert (home / '.ssh' / 'config').exists() and not (home / '.ssh' / 'config').is_symlink()
+        assert (home / '.ssh' / 'known_hosts').exists() and not (home / '.ssh' / 'known_hosts').is_symlink()
+
+    def test_unmanage_directory_dry_run(self, tmp_path, caplog):
+        """dotsync unmanage .ssh --dry-run does not modify filelist"""
+        flist = '.ssh/config:ssh\n.ssh/known_hosts:ssh\n'
+        home, repo = self.setup_repo(tmp_path, flist)
+        (home / '.ssh').mkdir()
+        (home / '.ssh' / 'config').write_text('host *')
+        (home / '.ssh' / 'known_hosts').write_text('github.com ...')
+        assert main(args=['update', 'ssh'], cwd=str(repo), home=str(home)) == 0
+        initial_flist = (repo / 'filelist').read_text()
+
+        assert main(args=['unmanage', '--dry-run', '.ssh'], cwd=str(repo), home=str(home)) == 0
+        assert (repo / 'filelist').read_text() == initial_flist
+        assert '.ssh/config' in initial_flist
+        assert '.ssh/known_hosts' in initial_flist
+
+    def test_add_path_outside_home_rejected(self, tmp_path, caplog):
+        """dotsync add ../outside must fail (path boundary check)"""
+        home, repo = self.setup_repo(tmp_path, '')
+        (tmp_path / 'outside').mkdir()
+        (tmp_path / 'outside' / 'file').write_text('x')
+        ret = main(args=['add', '../outside/file'], cwd=str(repo), home=str(home))
+        assert ret == 1
+        assert 'outside' in caplog.text.lower() or 'home' in caplog.text.lower() or 'path' in caplog.text.lower()
+
+    def test_add_directory_auto_update_only_new_entries(self, tmp_path, monkeypatch, caplog):
+        """add dir: auto-update only affects newly added files, not existing category entries"""
+        home, repo = self.setup_repo(tmp_path, '.existing:ssh\n')
+        (home / '.existing').write_text('old')
+        (home / '.ssh').mkdir()
+        (home / '.ssh' / 'config').write_text('host *')
+        monkeypatch.setattr('builtins.input', lambda p=None: 'y')
+        assert main(args=['update', 'ssh'], cwd=str(repo), home=str(home)) == 0
+        assert (home / '.existing').is_symlink()
+        input_calls = []
+        monkeypatch.setattr('builtins.input', lambda p=None: (input_calls.append(p) or 'y'))
+        ret = main(args=['add', '.ssh'], cwd=str(repo), home=str(home))
+        assert ret == 0
+        assert '.ssh/config' in (repo / 'filelist').read_text()
+        assert (home / '.ssh' / 'config').is_symlink()
+        assert (home / '.existing').is_symlink()
+
     # ------------------------------------------------------------------------------
     # Additional tests for restore command
     # ------------------------------------------------------------------------------
+
+    def test_restore_keep_going_continues_on_gpg_failure(self, tmp_path, monkeypatch, caplog):
+        home, repo = self.setup_repo(tmp_path, '.file1:test\n.secret1:test|encrypt\n.secret2:test|encrypt\n')
+        (home / '.file1').write_text('file1')
+        (home / '.secret1').write_text('secret1')
+        (home / '.secret2').write_text('secret2')
+        password = 'secret123'
+        monkeypatch.setattr('getpass.getpass', lambda prompt=None: password)
+        assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
+        os.remove(home / '.file1')
+        os.remove(home / '.secret1')
+        os.remove(home / '.secret2')
+
+        import dotsync.plugins.encrypt
+        _real = dotsync.plugins.encrypt.EncryptPlugin.remove
+        def failing_remove(self, source, dest):
+            if '.secret1' in str(dest):
+                raise Exception('GPG decrypt failed (injected)')
+            return _real(self, source, dest)
+        monkeypatch.setattr(dotsync.plugins.encrypt.EncryptPlugin, 'remove', failing_remove)
+
+        ret = main(args=['restore', '--keep-going', 'test'], cwd=str(repo), home=str(home))
+        assert ret == 1
+        assert (home / '.file1').exists()
+        assert (home / '.secret2').exists()
+        assert (home / '.secret2').read_text() == 'secret2'
+        assert 'secret1' in caplog.text or 'failed' in caplog.text.lower()
+
+    def test_restore_no_keep_going_stops_on_gpg_failure(self, tmp_path, monkeypatch):
+        home, repo = self.setup_repo(tmp_path, '.file1:test\n.secret:test|encrypt\n')
+        (home / '.file1').write_text('file1')
+        (home / '.secret').write_text('secret')
+        monkeypatch.setattr('getpass.getpass', lambda prompt=None: 'secret123')
+        assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
+        os.remove(home / '.file1')
+        os.remove(home / '.secret')
+
+        import dotsync.plugins.encrypt
+        _real = dotsync.plugins.encrypt.EncryptPlugin.remove
+        def failing_remove(self, source, dest):
+            if '.secret' in str(dest):
+                raise Exception('GPG decrypt failed')
+            return _real(self, source, dest)
+        monkeypatch.setattr(dotsync.plugins.encrypt.EncryptPlugin, 'remove', failing_remove)
+
+        ret = main(args=['restore', 'test'], cwd=str(repo), home=str(home))
+        assert ret == 1
+        assert (home / '.file1').exists()
 
     def test_restore_encrypted_file(self, tmp_path, monkeypatch):
         """Test restoring an encrypted file"""
@@ -662,6 +769,45 @@ class TestMain:
         assert not (home / '.secret').is_symlink()
         # Should be decrypted when restored
         assert (home / '.secret').read_text() == 'secret content'
+
+    def test_restore_non_interactive_overwrite_no_input(self, tmp_path):
+        home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
+        (home / '.testfile').write_text('repo content')
+        assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
+        os.remove(home / '.testfile')
+        (home / '.testfile').write_text('home content')
+
+        def fail_input(p):
+            raise AssertionError('input called in non-interactive mode')
+        import builtins
+        orig = builtins.input
+        builtins.input = fail_input
+        try:
+            ret = main(args=['restore', '--non-interactive', '--conflict', 'overwrite', 'test'], cwd=str(repo), home=str(home))
+            assert ret == 0
+            assert (home / '.testfile').is_symlink()
+        finally:
+            builtins.input = orig
+
+    def test_update_non_interactive_prefer_master_no_input(self, tmp_path):
+        home, repo = self.setup_repo(tmp_path, '.testfile:cat1,cat2\n')
+        (repo / 'dotfiles' / 'plain' / 'cat1' / '.testfile').parent.mkdir(parents=True, exist_ok=True)
+        (repo / 'dotfiles' / 'plain' / 'cat1' / '.testfile').write_text('cat1')
+        (repo / 'dotfiles' / 'plain' / 'cat2' / '.testfile').parent.mkdir(parents=True, exist_ok=True)
+        (repo / 'dotfiles' / 'plain' / 'cat2' / '.testfile').write_text('cat2')
+        (home / '.testfile').write_text('home')
+
+        def fail_input(p):
+            raise AssertionError('input called in non-interactive mode')
+        import builtins
+        orig = builtins.input
+        builtins.input = fail_input
+        try:
+            ret = main(args=['update', '--non-interactive', '--candidate', 'prefer-master', 'cat1', 'cat2'], cwd=str(repo), home=str(home))
+            assert ret == 0
+            assert (repo / 'dotfiles' / 'plain' / 'cat1' / '.testfile').read_text() == 'home'
+        finally:
+            builtins.input = orig
 
     def test_restore_conflict_cancel(self, tmp_path, monkeypatch):
         """Test restore when file exists, user cancels"""

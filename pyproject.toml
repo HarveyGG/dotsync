@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dotsync-cli"
-version = "1.0.13"
+version = "1.0.14"
 description = "A comprehensive solution to managing your dotfiles"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -70,9 +70,16 @@ precision = 2
 show_missing = true
 skip_covered = false
 
+[tool.ruff]
+target-version = "py38"
+
+[tool.ruff.lint]
+ignore = ["E402"]
+
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
+    "ruff>=0.8.0",
 ]
 

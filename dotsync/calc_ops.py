@@ -2,13 +2,15 @@ import os
 import logging
 
 from dotsync.file_ops import FileOps
+from dotsync.interaction import decide_candidate, decide_conflict
 
 
 class CalcOps:
-    def __init__(self, repo, restore_path, plugin):
+    def __init__(self, repo, restore_path, plugin, policy=None):
         self.repo = str(repo)
         self.restore_path = str(restore_path)
         self.plugin = plugin
+        self.policy = policy
 
     def update(self, files):
         fops = FileOps(self.repo)
@@ -50,31 +52,39 @@ class CalcOps:
 
             candidates = list(set(candidates))
             if len(candidates) > 1:
-                print(f'multiple candidates found for {path}:\n')
-
-                for i, cand in enumerate(candidates):
-                    print(f'[{i}] {cand}')
-                print('[-1] cancel')
-
-                while True:
-                    try:
-                        choice = int(input('please select the version you '
-                                           'would like to use '
-                                           f'[0-{len(candidates)-1}]: '))
-                        choice = candidates[choice]
-                    except (ValueError, EOFError):
-                        print('invalid choice entered, please try again')
+                restore_path_file = os.path.join(self.restore_path, path)
+                master_path = os.path.join(self.repo, master, path)
+                if self.policy and self.policy.non_interactive:
+                    source = decide_candidate(
+                        candidates, self.policy, restore_path_file, master_path
+                    )
+                    if source is None:
+                        logging.warning(f'multiple candidates for {path}, aborting (non-interactive)')
                         continue
-                    break
-                source = choice
+                else:
+                    print(f'multiple candidates found for {path}:\n')
+                    for i, cand in enumerate(candidates):
+                        print(f'[{i}] {cand}')
+                    print('[-1] cancel')
+                    source = None
+                    while True:
+                        try:
+                            choice = int(input('please select the version you '
+                                               'would like to use '
+                                               f'[0-{len(candidates)-1}]: '))
+                            if choice == -1:
+                                break
+                            source = candidates[choice]
+                            break
+                        except (ValueError, EOFError, IndexError):
+                            print('invalid choice entered, please try again')
+                            continue
+                    if source is None:
+                        continue
 
-                # if one of the candidates is not in the repo and it is not the
-                # source it should be deleted manually since it will not be
-                # deleted in the slave linking below, as the other candidates
-                # would be
-                restore_path = os.path.join(self.restore_path, path)
-                if restore_path in candidates and source != restore_path:
-                    fops.remove(restore_path)
+                restore_path_file = os.path.join(self.restore_path, path)
+                if restore_path_file in candidates and source != restore_path_file:
+                    fops.remove(restore_path_file)
 
             else:
                 source = candidates.pop()
@@ -128,15 +138,6 @@ class CalcOps:
 
             dest = os.path.join(self.restore_path, path)
 
-            # Use shared conflict handling logic
-            # Import here to avoid circular imports
-            import sys
-            import os as os_module
-            # Get the repo root by going up from repo path
-            repo_root = os_module.path.dirname(os_module.path.dirname(self.repo))
-            
-            # Import handle_dest_file_conflict from __main__ if available
-            # For now, use inline simplified version that matches restore behavior
             should_proceed, should_copy = self._handle_restore_conflict(source, dest)
             
             if not should_proceed:
@@ -152,46 +153,44 @@ class CalcOps:
     def _handle_restore_conflict(self, source, dest):
         """Handle conflict for restore operation (simpler than unmanage)"""
         if not os.path.exists(dest):
-            # Check for dangling symlink
             if os.path.islink(dest):
                 os.remove(dest)
             return (True, True)
-        
-        # Check if files are the same
+
         try:
             if self.plugin.samefile(source, dest):
                 logging.debug(f'{dest} is the same file as in the repo, skipping')
-                return (True, False)  # Skip, don't copy
+                return (True, False)
         except Exception:
             pass
-        
-        # Check if dest is a symlink to repo
+
         if os.path.islink(dest):
             link_target = os.readlink(dest)
             repo_abs = os.path.abspath(source)
-            if os.path.abspath(link_target) == repo_abs or link_target.startswith(os.path.dirname(os.path.dirname(self.repo)) + os.sep):
-                # Symlink to repo, safe to remove
+            repo_root = os.path.dirname(os.path.dirname(self.repo))
+            if os.path.abspath(link_target) == repo_abs or link_target.startswith(repo_root + os.sep):
                 logging.info(f'{dest} already linked to repo, replacing with new file')
                 os.remove(dest)
                 return (True, True)
-            else:
-                # Symlink to somewhere else, ask user (restore behavior)
-                a = input(f'{dest} already exists, replace? [Yn] ')
-                a = 'y' if not a else a
-                if a.lower() == 'y':
-                    os.remove(dest)
-                    return (True, True)
-                else:
-                    return (False, False)  # Cancelled
-        
-        # Regular file exists - simple prompt for restore
+            dest_exists, is_sym = True, True
+        else:
+            dest_exists, is_sym = True, False
+
+        if self.policy and self.policy.non_interactive:
+            result = decide_conflict(dest_exists, is_sym, False, self.policy)
+            if result == (True, True):
+                os.remove(dest)
+                return (True, True)
+            if result == (True, False):
+                return (True, False)
+            return (False, False)
+
         a = input(f'{dest} already exists, replace? [Yn] ')
         a = 'y' if not a else a
         if a.lower() == 'y':
             os.remove(dest)
             return (True, True)
-        else:
-            return (False, False)  # Cancelled
+        return (False, False)
 
     # removes links from restore path that point to the repo
     def clean(self, files):

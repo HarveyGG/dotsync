@@ -58,6 +58,10 @@ uv.lock
 htmlcov/
 .coverage
 
+# Vibe
+.vibe/
+vibe-skills.json
+
 # Internal documentation (not for distribution)
 GITHUB_ACTIONS_SETUP.md
 HOMEBREW_TAP.md

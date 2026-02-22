@@ -4,7 +4,7 @@ test:
 	pytest-3 -v
 
 lint:
-	python3 -m flake8 dotsync --count --statistics --show-source
+	ruff check dotsync
 
 package:
 	python3 setup.py sdist bdist_wheel

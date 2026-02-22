@@ -14,6 +14,8 @@ if __name__ == '__main__':
 
 from dotsync.args import Arguments
 from dotsync.enums import Actions
+from dotsync.file_ops import BatchApplyError
+from dotsync.policy import from_args
 from dotsync.checks import safety_checks
 from dotsync.flists import Filelist
 from dotsync.git import Git
@@ -67,6 +69,16 @@ def normalize_filepath(filepath, home):
     return normalized_path
 
 
+def check_path_in_home(normalized_path, home):
+    """Reject paths that escape home via .. (do not follow symlinks)"""
+    home_abs = os.path.abspath(home)
+    full = os.path.abspath(os.path.join(home, normalized_path))
+    if not full.startswith(home_abs + os.sep) and full != home_abs:
+        logging.error(f'Path {normalized_path} resolves outside home directory')
+        return False
+    return True
+
+
 def check_file_exists(filepath, prompt_if_missing=True):
     """Check if file exists, optionally prompt user if missing"""
     if os.path.exists(filepath):
@@ -101,7 +113,7 @@ def check_entry_exists_in_filelist(existing_lines, normalized_path, category=Non
     return False
 
 
-def handle_dest_file_conflict(repo_file, dest_file, repo, plugin, plugin_name=None, detailed_prompt=False):
+def handle_dest_file_conflict(repo_file, dest_file, repo, plugin, plugin_name=None, detailed_prompt=False, policy=None):
     """Handle conflicts when destination file already exists
     
     Args:
@@ -134,17 +146,14 @@ def handle_dest_file_conflict(repo_file, dest_file, repo, plugin, plugin_name=No
     except Exception:
         pass  # Continue with comparison
     
-    # Check if dest is a symlink to repo
     if os.path.islink(dest_file):
         link_target = os.readlink(dest_file)
         repo_abs = os.path.abspath(repo_file)
-        # Try to resolve relative symlink
         try:
             resolved_target = os.path.abspath(os.path.join(os.path.dirname(dest_file), link_target))
-        except:
+        except Exception:
             resolved_target = None
-        # Check if symlink points to repo file
-        if (os.path.abspath(link_target) == repo_abs or 
+        if (os.path.abspath(link_target) == repo_abs or
             (resolved_target and resolved_target == repo_abs) or
             link_target.startswith(repo + os.sep)):
             # Symlink to repo, safe to remove
@@ -152,19 +161,32 @@ def handle_dest_file_conflict(repo_file, dest_file, repo, plugin, plugin_name=No
             os.remove(dest_file)
             return (True, True)
         else:
-            # Symlink to somewhere else
             logging.warning(f'{dest_file} is a symlink pointing to {link_target}')
+            if policy and policy.non_interactive:
+                from dotsync.interaction import decide_conflict
+                result = decide_conflict(True, True, False, policy)
+                if result == (True, True):
+                    os.remove(dest_file)
+                    return (True, True)
+                if result == (True, False):
+                    return (True, False)
+                return (False, False)
             response = input('Remove this symlink? [Yn] ')
             response = 'y' if not response else response.lower()
             if response == 'y':
                 os.remove(dest_file)
                 return (True, True)
-            else:
-                return (False, False)  # Cancelled
-    
-    # Regular file exists - need to ask user
+            return (False, False)
+
     if not os.path.exists(repo_file):
-        # Repo file doesn't exist, can't compare
+        if policy and policy.non_interactive:
+            from dotsync.interaction import decide_conflict
+            result = decide_conflict(True, False, False, policy)
+            if result == (True, True):
+                return (True, True)
+            if result == (True, False):
+                return (True, False)
+            return (False, False)
         response = input(f'{dest_file} already exists but repo file not found. Keep existing? [Yn] ')
         response = 'y' if not response else response.lower()
         return (True, response != 'y')
@@ -181,8 +203,17 @@ def handle_dest_file_conflict(repo_file, dest_file, repo, plugin, plugin_name=No
         except Exception:
             files_differ = None
     
+    if policy and policy.non_interactive:
+        from dotsync.interaction import decide_conflict
+        result = decide_conflict(True, os.path.islink(dest_file), False, policy)
+        if result == (True, True):
+            os.remove(dest_file)
+            return (True, True)
+        if result == (True, False):
+            return (True, False)
+        return (False, False)
+
     if files_differ and detailed_prompt:
-        # Detailed prompt with options
         print(f'File {dest_file} already exists and differs from repository version.')
         print('Options:')
         print('  [o] Overwrite with repository version')
@@ -203,7 +234,6 @@ def handle_dest_file_conflict(repo_file, dest_file, repo, plugin, plugin_name=No
             else:
                 print('Invalid choice, please enter o, k, or c')
     else:
-        # Simple prompt (default for restore)
         prompt = f'{dest_file} already exists'
         if files_differ is True:
             prompt += ' and differs from repository version'
@@ -213,8 +243,7 @@ def handle_dest_file_conflict(repo_file, dest_file, repo, plugin, plugin_name=No
         if response == 'y':
             os.remove(dest_file)
             return (True, True)
-        else:
-            return (False, False)  # Cancelled
+        return (False, False)
 
 
 def find_dotsync_repo(start_dir=None, home=None):
@@ -246,23 +275,16 @@ def find_dotsync_repo(start_dir=None, home=None):
         start_dir = os.getcwd()
     
     current_dir = os.path.abspath(start_dir)
-    root_dir = os.path.dirname(current_dir)
-    
-    # Traverse upward until we hit root or home directory
-    while current_dir != root_dir and current_dir != home:
+
+    while True:
         filelist_path = os.path.join(current_dir, 'filelist')
         git_path = os.path.join(current_dir, '.git')
-        
-        # Check if this directory contains filelist (required for dotsync repo)
-        # .git is optional but preferred for safety checks
         if os.path.exists(filelist_path):
-            # Verify it's a dotsync repo (has .git or is in default location)
             if os.path.isdir(git_path) or current_dir == os.path.join(home, '.dotfiles'):
                 return current_dir
-        
-        # Move to parent directory
+
         parent_dir = os.path.dirname(current_dir)
-        if parent_dir == current_dir:  # Reached filesystem root
+        if parent_dir == current_dir or current_dir == home:
             break
         current_dir = parent_dir
     
@@ -377,6 +399,8 @@ def infer_category_from_path(filepath):
         return 'tmux'
     elif 'vscode' in filepath or '.vscode' in dirname:
         return 'vscode'
+    elif '.vibe' in filepath or basename == 'vibe':
+        return 'vibe'
     elif basename.startswith('.'):
         # For dotfiles starting with ., use the name without dot
         return basename[1:].split('.')[0]
@@ -392,11 +416,12 @@ def add_to_filelist(flist_fname, filepath, category, home, dry_run, verbose_leve
     # System files to ignore (e.g., macOS .DS_Store, Windows Thumbs.db)
     SYSTEM_FILES = {'.DS_Store', 'Thumbs.db', '.DS_Store?'}
     
-    # Normalize filepath
     normalized_path = normalize_filepath(filepath, home)
     if normalized_path is None:
         return 1
-    
+    if not check_path_in_home(normalized_path, home):
+        return 1
+
     # Reject system files
     basename = os.path.basename(normalized_path)
     if basename in SYSTEM_FILES:
@@ -404,14 +429,14 @@ def add_to_filelist(flist_fname, filepath, category, home, dry_run, verbose_leve
         logging.info('System files like .DS_Store are automatically ignored')
         return 1
     
-    # Check if file exists (skip prompt in dry-run mode)
+    # Check if path exists (skip prompt in dry-run mode)
     full_path = os.path.join(home, normalized_path)
     if dry_run:
-        # In dry-run, just warn if file doesn't exist but continue
+        # In dry-run, just warn if path doesn't exist but continue
         if not os.path.exists(full_path):
-            logging.warning(f'File does not exist: {full_path} (dry-run mode, continuing)')
+            logging.warning(f'Path does not exist: {full_path} (dry-run mode, continuing)')
     else:
-        # In normal mode, prompt user if file doesn't exist
+        # In normal mode, prompt user if path doesn't exist
         if not check_file_exists(full_path, prompt_if_missing=True):
             logging.info('Cancelled')
             return 1
@@ -426,20 +451,12 @@ def add_to_filelist(flist_fname, filepath, category, home, dry_run, verbose_leve
     
     # Build entry with optional encrypt plugin
     plugin_suffix = '|encrypt' if encrypt else ''
-    new_entry = f'{normalized_path}:{category}{plugin_suffix}\n'
     
-    # Check if already exists (check both with and without encrypt)
-    if check_entry_exists_in_filelist(existing_lines, normalized_path, category):
-        logging.warning(f'Entry already exists in filelist: {normalized_path}:{category}')
-        return 1
-    
-    # If encrypt is requested, prompt for password interactively
+    # If encrypt is requested, prompt for password interactively (for both file and directory)
     if encrypt and not dry_run:
         try:
-            # Initialize encryption password by creating a temporary encrypt plugin
-            # This will prompt for password
             from dotsync.plugins.encrypt import EncryptPlugin
-            repo_dir = os.path.dirname(os.path.dirname(flist_fname)) if repo is None else repo
+            repo_dir = os.path.dirname(flist_fname) if repo is None else repo
             encrypt_plugin = EncryptPlugin(
                 data_dir=os.path.join(repo_dir, '.plugins', 'encrypt'),
                 repo_dir=os.path.join(repo_dir, 'dotfiles', 'encrypt') if repo else None
@@ -449,6 +466,65 @@ def add_to_filelist(flist_fname, filepath, category, home, dry_run, verbose_leve
         except Exception as e:
             logging.error(f'Failed to initialize encryption: {e}')
             return 1
+    
+    # If path is a directory, recursively add all files under it
+    if os.path.isdir(full_path):
+        paths_to_add = []
+        for root, _dirs, files in os.walk(full_path):
+            for f in files:
+                if f in SYSTEM_FILES:
+                    continue
+                abs_f = os.path.join(root, f)
+                rel = os.path.relpath(abs_f, home)
+                if not rel.startswith('.'):
+                    rel = '.' + rel
+                paths_to_add.append(rel)
+        if not paths_to_add:
+            logging.warning(f'No files found under directory {filepath}')
+            return 1
+        new_entries = []
+        for p in paths_to_add:
+            if check_entry_exists_in_filelist(existing_lines, p, category):
+                logging.debug(f'Already in filelist: {p}')
+                continue
+            new_entries.append((p, f'{p}:{category}{plugin_suffix}\n'))
+            existing_lines.append(f'{p}:{category}{plugin_suffix}\n')
+        if not new_entries:
+            logging.warning(f'All files under {filepath} are already in filelist')
+            return 1
+        if dry_run:
+            for p, _ in new_entries:
+                logging.info(f'[DRY RUN] Would add to filelist: {p}:{category}{plugin_suffix}')
+            return 0
+        with open(flist_fname, 'a') as f:
+            if existing_lines and not existing_lines[-1].endswith('\n'):
+                f.write('\n')
+            for p, entry in new_entries:
+                f.write(entry)
+                logging.info(f'Added to filelist: {p}:{category}{plugin_suffix}')
+        if auto_update and not dry_run and repo and plugins is not None and plugin_dirs is not None:
+            logging.info('Auto-updating files...')
+            try:
+                plugin_name = 'encrypt' if encrypt else 'plain'
+                new_only = {p: {'categories': [category], 'plugin': plugin_name} for p, _ in new_entries}
+                manifest = {plugin_name: [os.path.join(category, p) for p, _ in new_entries]}
+                from dotsync.args import Arguments
+                args = Arguments(['update', category])
+                update_files(repo, new_only, manifest, plugins, plugin_dirs, home, args)
+                restore_files(repo, new_only, manifest, plugins, plugin_dirs, home, args)
+                logging.info('Files synced and linked successfully')
+            except Exception as e:
+                logging.error(f'Failed to auto-update: {e}')
+                logging.info(f'Run "dotsync update {category}" to sync the files')
+        else:
+            logging.info(f'Run "dotsync update {category}" to sync the files')
+        return 0
+    
+    # Single file: check if already in filelist
+    new_entry = f'{normalized_path}:{category}{plugin_suffix}\n'
+    if check_entry_exists_in_filelist(existing_lines, normalized_path, category):
+        logging.warning(f'Entry already exists in filelist: {normalized_path}:{category}')
+        return 1
     
     # Add new entry (before the last newline if file ends with newline, otherwise append)
     if dry_run:
@@ -595,93 +671,96 @@ def encrypt_to_filelist(flist_fname, filepath, home, dry_run):
     return 0
 
 
-def unmanage_from_filelist(flist_fname, filepath, home, repo, plugins, plugin_dirs, dry_run):
+def unmanage_from_filelist(flist_fname, filepath, home, repo, plugins, plugin_dirs, dry_run, policy=None):
     """Restore a configuration file to home directory and stop managing it"""
-    
-    # Normalize filepath
     normalized_path = normalize_filepath(filepath, home)
     if normalized_path is None:
         return 1
-    
-    # Load filelist
+    if not check_path_in_home(normalized_path, home):
+        return 1
+
     filelist = load_filelist(flist_fname)
     if filelist is None:
         return 1
-    
-    # Check if file is in filelist
+
+    dir_base = normalized_path.rstrip('/')
+    home_dir = os.path.join(home, dir_base)
+    is_dir_input = dir_base.endswith('/') or os.path.isdir(home_dir)
+    if normalized_path in filelist.files:
+        targets = [normalized_path]
+    elif is_dir_input:
+        prefix = dir_base + os.sep
+        targets = sorted(p for p in filelist.files if p.startswith(prefix))
+        if not targets:
+            logging.error(f'No managed files under {dir_base}/')
+            return 1
+    else:
+        logging.error(f'File {normalized_path} is not managed by dotsync')
+        return 1
+
+    if dry_run:
+        for p in targets:
+            logging.info(f'[DRY RUN] Would unmanage {p}')
+        return 0
+
+    keep_going = getattr(policy, 'keep_going', False) if policy else False
+    failed = []
+    for normalized_path in targets:
+        if _unmanage_one(flist_fname, normalized_path, home, repo, filelist, plugins, plugin_dirs, policy) != 0:
+            if not keep_going:
+                return 1
+            failed.append(normalized_path)
+    if failed:
+        for p in failed:
+            logging.error(f'Failed to unmanage {p}')
+        return 1
+    return 0
+
+
+def _unmanage_one(flist_fname, normalized_path, home, repo, filelist, plugins, plugin_dirs, policy=None):
+    """Unmanage a single file. filelist is the loaded object (may be stale after first call)."""
     if normalized_path not in filelist.files:
         logging.error(f'File {normalized_path} is not managed by dotsync')
         return 1
-    
-    # Get file instance to determine plugin and categories
+
     instances = filelist.files[normalized_path]
     if not instances:
         logging.error(f'File {normalized_path} has no valid configuration')
         return 1
-    
-    # Use the first instance (typically there's only one)
+
     instance = instances[0]
     plugin_name = instance['plugin']
     categories = instance['categories']
-    
-    # Determine repository file location
     master_category = min(categories)
     plugin_dir = plugin_dirs[plugin_name]
     repo_file = os.path.join(plugin_dir, master_category, normalized_path)
-    
-    # Check if repo file exists
+    home_file = os.path.join(home, normalized_path)
+
     if not os.path.exists(repo_file):
         logging.warning(f'Repository file not found: {repo_file}')
-        # Still proceed to remove from filelist
-    
-    # Check home directory file
-    home_file = os.path.join(home, normalized_path)
-    home_exists = os.path.exists(home_file) or os.path.islink(home_file)
-    is_symlink = os.path.islink(home_file) if home_exists else False
-    
-    if dry_run:
-        logging.info(f'[DRY RUN] Would unmanage {normalized_path}')
-        if home_exists:
-            if is_symlink:
-                logging.info(f'  - Would remove symlink: {home_file}')
-            else:
-                logging.info(f'  - Would ask about existing file: {home_file}')
-        if os.path.exists(repo_file):
-            logging.info(f'  - Would copy/decrypt from repo: {repo_file} -> {home_file}')
-        logging.info(f'  - Would remove from filelist')
-        logging.info(f'  - Would clean up repository file')
-        return 0
-    
-    # Handle home directory file conflict using shared logic
+
     plugin = plugins[plugin_name]
     should_proceed, should_copy = handle_dest_file_conflict(
-        repo_file, home_file, repo, plugin, plugin_name=plugin_name, detailed_prompt=True
+        repo_file, home_file, repo, plugin, plugin_name=plugin_name, detailed_prompt=True, policy=policy
     )
     if not should_proceed:
         logging.info('Cancelled')
         return 1
-    
-    # After handle_dest_file_conflict, home_file might have been removed if it was a symlink
-    # We always want to restore the file from repo (unless user chose to keep existing)
-    # Copy/decrypt file from repository to home (only if we should)
+    if should_copy is False and os.path.islink(home_file):
+        os.remove(home_file)
+        should_copy = True
+
     if should_copy and os.path.exists(repo_file):
-        # Ensure parent directory exists
         home_dir = os.path.dirname(home_file)
         if home_dir and not os.path.exists(home_dir):
             os.makedirs(home_dir, exist_ok=True)
             logging.info(f'Created directory: {home_dir}')
-        
-        # Use plugin to copy/decrypt file
-        plugin = plugins[plugin_name]
         try:
             if plugin_name == 'encrypt':
-                # Decrypt file
                 logging.info(f'Decrypting {normalized_path}...')
-                plugin.init_password()  # Will prompt for password if needed
+                plugin.init_password()
                 plugin.remove(repo_file, home_file)
             else:
-                # For unmanage, always copy file (don't create symlink)
-                # Temporarily set hard mode to ensure copy
                 original_hard = plugin.hard
                 plugin.hard = True
                 try:
@@ -693,64 +772,48 @@ def unmanage_from_filelist(flist_fname, filepath, home, repo, plugins, plugin_di
         except Exception as e:
             logging.error(f'Failed to copy/decrypt file: {e}')
             return 1
-    
-    # Remove from filelist
+
     existing_lines = read_filelist_lines(flist_fname)
     new_lines = []
     removed = False
-    
     for line in existing_lines:
         stripped = line.strip()
-        # Skip empty lines and comments
         if not stripped or stripped.startswith('#'):
             new_lines.append(line)
             continue
-        
-        # Check if this line is for our file
         parts = stripped.split(':')
         if len(parts) >= 1:
-            file_path = parts[0].split('|')[0]  # Remove plugin suffix if present
-            
+            file_path = parts[0].split('|')[0]
             if file_path == normalized_path:
-                # Skip this line (remove it)
                 removed = True
                 continue
-        
         new_lines.append(line)
-    
+
     if not removed:
         logging.warning(f'Could not find {normalized_path} in filelist')
-        # Still proceed to clean up
-    
-    # Write updated filelist
+
     with open(flist_fname, 'w') as f:
         f.writelines(new_lines)
-    
     logging.info(f'Removed {normalized_path} from filelist')
-    
-    # Clean up repository file
+
     if os.path.exists(repo_file):
         try:
-            # Remove the file from repository
             os.remove(repo_file)
             logging.info(f'Removed repository file: {repo_file}')
-            
-            # Try to remove empty category directory
             category_dir = os.path.dirname(repo_file)
             if os.path.exists(category_dir) and not os.listdir(category_dir):
                 os.rmdir(category_dir)
                 logging.info(f'Removed empty category directory: {category_dir}')
         except Exception as e:
             logging.warning(f'Failed to clean up repository file: {e}')
-    
-    # Clean up plugin data if encrypted
+
     if plugin_name == 'encrypt':
         try:
             plugin.clean_data([os.path.join(master_category, normalized_path)])
             logging.info('Cleaned up encryption metadata')
         except Exception as e:
             logging.warning(f'Failed to clean up encryption metadata: {e}')
-    
+
     logging.info(f'Successfully unmanaged {normalized_path}')
     return 0
 
@@ -825,85 +888,128 @@ def list_managed_files(flist_fname, categories, home):
 def update_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
     """Update files from home to repository"""
     clean_ops = []
-    
+    policy = from_args(args)
+
     for plugin in plugins:
         flist = {path: filelist[path]['categories'] for path in filelist if
                  filelist[path]['plugin'] == plugin}
         if not flist:
             continue
         logging.debug(f'active filelist for plugin {plugin}: {flist}')
-        
+
         plugin_dir = plugin_dirs[plugin]
-        calc_ops = CalcOps(plugin_dir, home, plugins[plugin])
-        
-        calc_ops.update(flist).apply(args.dry_run)
-        calc_ops.restore(flist).apply(args.dry_run)
-        
+        calc_ops = CalcOps(plugin_dir, home, plugins[plugin], policy=policy)
+
+        try:
+            calc_ops.update(flist).apply(args.dry_run, keep_going=policy.keep_going)
+            calc_ops.restore(flist).apply(args.dry_run, keep_going=policy.keep_going)
+        except BatchApplyError as e:
+            for op_str, err in e.errors:
+                logging.error(f'{op_str}: {err}')
+            return 1
+        except Exception as e:
+            logging.error(str(e))
+            return 1
+
         clean_ops.append(calc_ops.clean_repo(manifest[plugin]))
         plugins[plugin].clean_data(manifest[plugin])
-    
+
     for clean_op in clean_ops:
-        clean_op.apply(args.dry_run)
-    
+        try:
+            clean_op.apply(args.dry_run, keep_going=policy.keep_going)
+        except BatchApplyError as e:
+            for op_str, err in e.errors:
+                logging.error(f'{op_str}: {err}')
+            return 1
+
     return 0
 
 
 def restore_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
     """Restore files from repository to home"""
     clean_ops = []
-    
+    policy = from_args(args)
+
     for plugin in plugins:
         flist = {path: filelist[path]['categories'] for path in filelist if
                  filelist[path]['plugin'] == plugin}
         if not flist:
             continue
         logging.debug(f'active filelist for plugin {plugin}: {flist}')
-        
+
         plugin_dir = plugin_dirs[plugin]
-        calc_ops = CalcOps(plugin_dir, home, plugins[plugin])
-        
-        calc_ops.restore(flist).apply(args.dry_run)
-        
+        calc_ops = CalcOps(plugin_dir, home, plugins[plugin], policy=policy)
+
+        try:
+            calc_ops.restore(flist).apply(args.dry_run, keep_going=policy.keep_going)
+        except BatchApplyError as e:
+            for op_str, err in e.errors:
+                logging.error(f'{op_str}: {err}')
+            return 1
+        except Exception as e:
+            logging.error(str(e))
+            return 1
+
         clean_ops.append(calc_ops.clean_repo(manifest[plugin]))
         plugins[plugin].clean_data(manifest[plugin])
-    
+
     for clean_op in clean_ops:
-        clean_op.apply(args.dry_run)
-    
+        try:
+            clean_op.apply(args.dry_run, keep_going=policy.keep_going)
+        except BatchApplyError as e:
+            for op_str, err in e.errors:
+                logging.error(f'{op_str}: {err}')
+            return 1
+
     return 0
 
 
 def clean_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
     """Clean files from repository that are no longer managed"""
     clean_ops = []
-    
+    policy = from_args(args)
+
     for plugin in plugins:
         flist = {path: filelist[path]['categories'] for path in filelist if
                  filelist[path]['plugin'] == plugin}
         if not flist:
             continue
         logging.debug(f'active filelist for plugin {plugin}: {flist}')
-        
+
         plugin_dir = plugin_dirs[plugin]
-        calc_ops = CalcOps(plugin_dir, home, plugins[plugin])
-        
-        calc_ops.clean(flist).apply(args.dry_run)
-        
+        calc_ops = CalcOps(plugin_dir, home, plugins[plugin], policy=policy)
+
+        try:
+            calc_ops.clean(flist).apply(args.dry_run, keep_going=policy.keep_going)
+        except BatchApplyError as e:
+            for op_str, err in e.errors:
+                logging.error(f'{op_str}: {err}')
+            return 1
+        except Exception as e:
+            logging.error(str(e))
+            return 1
+
         clean_ops.append(calc_ops.clean_repo(manifest[plugin]))
         plugins[plugin].clean_data(manifest[plugin])
-    
+
     for clean_op in clean_ops:
-        clean_op.apply(args.dry_run)
-    
+        try:
+            clean_op.apply(args.dry_run, keep_going=policy.keep_going)
+        except BatchApplyError as e:
+            for op_str, err in e.errors:
+                logging.error(f'{op_str}: {err}')
+            return 1
+
     return 0
 
 
 def show_diff(repo, filelist, plugins, plugin_dirs, home, git, args):
     """Show differences between home and repository"""
     print('\n'.join(git.diff(ignore=['.plugins/'])))
-    
+    policy = from_args(args)
+
     for plugin in plugins:
-        calc_ops = CalcOps(plugin_dirs[plugin], home, plugins[plugin])
+        calc_ops = CalcOps(plugin_dirs[plugin], home, plugins[plugin], policy=policy)
         diff = calc_ops.diff(args.categories)
         
         if diff:
@@ -1101,7 +1207,7 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
         if not args.add_filepath:
             logging.error('unmanage action requires filepath argument')
             return 1
-        return unmanage_from_filelist(flist_fname, args.add_filepath, home, repo, plugins, plugin_dirs, args.dry_run)
+        return unmanage_from_filelist(flist_fname, args.add_filepath, home, repo, plugins, plugin_dirs, args.dry_run, policy=from_args(args))
 
     # check for list
     if args.action == Actions.LIST:

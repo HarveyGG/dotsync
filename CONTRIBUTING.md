@@ -58,7 +58,7 @@ uv run pytest tests/ -v
 ## Code Style
 
 - Follow PEP 8 style guide
-- Use flake8 for linting
+- Use ruff for linting
 - Keep functions focused and well-documented
 - Add docstrings for public functions
 

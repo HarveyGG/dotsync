@@ -23,7 +23,7 @@ class Git:
         self.repo_dir = repo_dir
 
     def run(self, cmd):
-        if not type(cmd) is list:
+        if type(cmd) is not list:
             cmd = shlex.split(cmd)
         logging.info(f'running git command {cmd}')
         try:
