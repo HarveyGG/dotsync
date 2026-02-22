@@ -79,3 +79,47 @@ class TestIntegration:
 
         assert (repo / "dotfiles" / "plain" / "asd" / "foo").exists()
         assert not (repo / "dotfiles" / "plain" / "asd" / "foo").is_symlink()
+
+    def test_update_restore_nested_dir_with_hidden(self, tmp_path):
+        """add dir with .hidden and nested subdirs: update copies to repo, restore creates symlinks"""
+        home, repo = self.setup_repo(tmp_path, '')
+        mock = home / '.mockdir'
+        mock.mkdir()
+        (mock / '.hidden').mkdir()
+        (mock / '.hidden' / 'file').write_text('hidden')
+        (mock / 'subdir').mkdir()
+        (mock / 'subdir' / 'file1').write_text('f1')
+        (mock / 'subdir' / 'subdir2').mkdir()
+        (mock / 'subdir' / 'subdir2' / 'file2').write_text('f2')
+
+        flist = '.mockdir/.hidden/file:mock\n.mockdir/subdir/file1:mock\n.mockdir/subdir/subdir2/file2:mock\n'
+        with open(repo / 'filelist', 'w') as f:
+            f.write(flist)
+
+        assert main(args=['update', 'mock'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', 'mock'], cwd=str(repo), home=str(home)) == 0
+
+        for p in ['.mockdir/.hidden/file', '.mockdir/subdir/file1', '.mockdir/subdir/subdir2/file2']:
+            fp = home / p
+            assert fp.exists(), f'{p} should exist'
+            assert fp.is_symlink(), f'{p} should be symlink'
+            assert 'dotfiles' in str(fp.resolve()), f'{p} should point to repo'
+
+    def test_add_dir_then_update_restore_symlinks_created(self, tmp_path):
+        """add dir with --no-auto-update, then update+restore: home files become symlinks"""
+        home, repo = self.setup_repo(tmp_path, '')
+        mock = home / '.mockdir'
+        mock.mkdir()
+        (mock / '.hidden').mkdir()
+        (mock / '.hidden' / 'file').write_text('hidden')
+        (mock / 'subdir').mkdir()
+        (mock / 'subdir' / 'file1').write_text('f1')
+
+        assert main(args=['add', '--no-auto-update', '.mockdir'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['update', 'mockdir'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', 'mockdir'], cwd=str(repo), home=str(home)) == 0
+
+        for p in ['.mockdir/.hidden/file', '.mockdir/subdir/file1']:
+            fp = home / p
+            assert fp.exists(), f'{p} should exist after restore'
+            assert fp.is_symlink(), f'{p} should be symlink'

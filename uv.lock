@@ -330,7 +330,7 @@ toml = [
 
 [[package]]
 name = "dotsync-cli"
-version = "1.0.13"
+version = "1.0.14"
 source = { editable = "." }
 
 [package.dev-dependencies]

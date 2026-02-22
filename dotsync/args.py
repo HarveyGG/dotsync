@@ -97,6 +97,8 @@ class Arguments:
                             help='candidate selection when multiple versions exist')
         parser.add_argument('--keep-going', action='store_true',
                             help='continue on file errors, report at end')
+        parser.add_argument('--no-auto-update', action='store_true',
+                            help='skip auto-update after add (for large dirs)')
 
         # parse args
         args = parser.parse_args(args)
@@ -156,6 +158,7 @@ class Arguments:
         self.conflict = getattr(args, 'conflict', 'prompt')
         self.candidate = getattr(args, 'candidate', 'prompt')
         self.keep_going = getattr(args, 'keep_going', False)
+        self.no_auto_update = getattr(args, 'no_auto_update', False)
         self.action = Actions(args.action)
         self.categories = args.category
 

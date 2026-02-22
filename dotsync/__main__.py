@@ -467,10 +467,11 @@ def add_to_filelist(flist_fname, filepath, category, home, dry_run, verbose_leve
             logging.error(f'Failed to initialize encryption: {e}')
             return 1
     
-    # If path is a directory, recursively add all files under it
     if os.path.isdir(full_path):
+        DIR_SKIP = {'extensions', 'worktrees', 'Cache', 'CachedData', '.git', 'node_modules', 'logs'}
         paths_to_add = []
-        for root, _dirs, files in os.walk(full_path):
+        for root, dirs, files in os.walk(full_path):
+            dirs[:] = [d for d in dirs if d not in DIR_SKIP]
             for f in files:
                 if f in SYSTEM_FILES:
                     continue
@@ -1189,7 +1190,7 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
             flist_fname, args.add_filepath, args.add_category, home, 
             args.dry_run, args.verbose_level, 
             encrypt=args.encrypt,
-            auto_update=True,  # Always auto-update after add
+            auto_update=not getattr(args, 'no_auto_update', False),
             repo=repo,
             plugins=plugins,
             plugin_dirs=plugin_dirs
