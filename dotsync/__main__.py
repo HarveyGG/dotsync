@@ -1420,6 +1420,21 @@ def commit_changes(repo, git):
     return 0
 
 
+def show_password(plugins):
+    """Print stored encryption password to stdout."""
+    logging.debug('reading stored encryption password')
+    try:
+        password = plugins['encrypt'].read_stored_password()
+    except FileNotFoundError:
+        logging.error('No encryption password configured')
+        return 1
+    except ValueError as e:
+        logging.error(str(e))
+        return 1
+    print(password)
+    return 0
+
+
 def change_password(dotfiles, plugins):
     """Change encryption password for encrypted files"""
     logging.debug('attempting to change encryption password')
@@ -1700,6 +1715,9 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
     # check for categories
     if args.action == Actions.CATEGORIES:
         return show_categories(flist_fname)
+
+    if args.action == Actions.SHOWPW:
+        return show_password(plugins)
 
     # Load filelist for other operations
     filelist_obj = load_filelist(flist_fname)

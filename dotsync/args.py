@@ -9,7 +9,11 @@ HELP = {
     'verbose': 'increase verbosity level',
     'dry-run': 'do not actually execute any file operations',
     'hard-mode': 'copy files instead of symlinking them',
-    'action': 'action to take on active categories',
+    'action': (
+        'action to take on active categories; '
+        'showpw prints the stored encryption password to stdout '
+        '(local machine only — visible in terminal and shell history)'
+    ),
     'category': 'categories to activate (default: common + hostname)'
 }
 

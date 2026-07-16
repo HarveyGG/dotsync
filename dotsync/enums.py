@@ -18,3 +18,4 @@ class Actions(enum.Enum):
     COMMIT = 'commit'      # Commit changes to git and optionally push
     CLEAN = 'clean'        # Remove files from repository that are no longer managed
     PASSWD = 'passwd'      # Change encryption password for encrypted files
+    SHOWPW = 'showpw'      # Print stored encryption password (local machine only)

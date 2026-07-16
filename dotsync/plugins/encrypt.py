@@ -122,10 +122,23 @@ class EncryptPlugin(Plugin):
         # calculate password hash
         key = key_stretch(password.encode(), salt)
 
-        # save salt and hash
+        # save salt, hash, and plaintext for local showpw retrieval
         with open(self.pword_path, 'w') as f:
-            d = {'pword': key, 'salt': salt.hex()}
+            d = {'pword': key, 'salt': salt.hex(), 'secret': password}
             json.dump(d, f)
+
+    def read_stored_password(self):
+        """Return the stored encryption password for local display."""
+        if not os.path.exists(self.pword_path):
+            raise FileNotFoundError('No encryption password configured')
+        with open(self.pword_path, 'r') as f:
+            d = json.load(f)
+        secret = d.get('secret')
+        if not secret:
+            raise ValueError(
+                'No stored password available; run "dotsync passwd" to set one'
+            )
+        return secret
 
     # takes a password and checks if the correct password was entered
     def verify_password(self, password):
