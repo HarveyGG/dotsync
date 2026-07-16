@@ -1,6 +1,6 @@
 # Black-box E2E Test Plan (Task 16)
 
-**Status:** Draft for Opus 4.8 review gate (Step 2) — do not implement harness or execute until review feedback is merged.
+**Status:** Reviewed (Opus 4.8, 2026-07-16) — ready for harness implementation (Step 4). Do not execute until `conftest.py` exists.
 
 **Scope:** End-to-end scenarios run in an isolated sandbox. Each scenario invokes the real `dotsync` CLI as a subprocess (not `main()` directly), with `$HOME` and `DOTSYNC_REPO` confined to temporary directories.
 
@@ -21,8 +21,12 @@
 | `$SANDBOX/home2` | Second HOME for “fresh machine” restore (lifecycle) |
 | CLI invocation | `uv run dotsync <args>` with `env={HOME, DOTSYNC_REPO}` and `cwd=$HOME` unless noted |
 | Git identity | `GIT_AUTHOR_*` / `GIT_COMMITTER_*` set to fixed test values in sandbox env |
+| Hostname pin | Monkeypatch or env override for `info.hostname` **or** always pass explicit `--categories`/positional categories — default categories are `['common', hostname]` and are machine-dependent |
+| Repo prerequisites | Each non-init scenario must `git init` `$REPO` **and** create `filelist` before any command — `safety_checks` rejects `repo == home`, missing `.git`, or missing `filelist` (`dotsync/checks.py`) |
 | Interactive input | Pre-scripted stdin via subprocess or `pexpect`; document expected prompts per scenario |
-| Isolation invariant | **No writes outside `$SANDBOX`** — verify with path checks in harness |
+| Non-interactive save guard | Any `save --non-interactive` **without** `--no-push` requires `origin` pre-configured — otherwise `push_with_remote` calls `input()` and hangs or raises `EOFError` on closed stdin |
+| Encrypt isolation | Before enabling E-series: confirm encrypt plugin writes **only** under `$REPO/.plugins/encrypt` (no user keyring/GPG/global state) |
+| Isolation invariant | **No writes outside `$SANDBOX`** — verify with post-run path scan in harness |
 
 **Repo layout (v2 mirror):**
 
@@ -53,6 +57,7 @@
 | L2 | Lifecycle | P0 |
 | L3 | Lifecycle | P1 |
 | L4 | Lifecycle | P1 |
+| L5 | Lifecycle | P1 |
 | M1 | Mirror-only | P0 |
 | M2 | Mirror-only | P0 |
 | M3 | Mirror-only | P1 |
@@ -74,7 +79,8 @@
 | S3 | Symlinks | P1 |
 | S4 | Symlinks | P1 |
 | S5 | Symlinks | P2 |
-| E1 | Encrypt | P0 |
+| S6 | Symlinks | P0 |
+| E1 | Encrypt | P1 |
 | E2 | Encrypt | P1 |
 | E3 | Encrypt | P2 |
 | B1 | Boundaries | P1 |
@@ -82,6 +88,7 @@
 | B3 | Boundaries | P0 |
 | B4 | Boundaries | P1 |
 | B5 | Boundaries | P2 |
+| B6 | Boundaries | P0 |
 
 ---
 
@@ -98,13 +105,18 @@
 3. Write `$HOME/.zshrc` with content `export ZSH=1\n`.
 4. Write `$HOME/.vimrc` with content `set number\n`.
 
+**Harness prerequisites (before first CLI call)**
+
+1. After `track` bootstraps `$REPO`, run `git -C $REPO remote add origin file://$SANDBOX/bare.git` — **or** script stdin for the URL prompt on first `save`.
+2. Note: `track` runs auto-update by default, so the mirror may exist **before** `save` (see L5).
+
 **Commands**
 
 ```bash
 # cwd=$HOME throughout
 dotsync track .zshrc shell
 dotsync track .vimrc editor
-# When save prompts for remote URL, provide file://$SANDBOX/bare.git (or pre-add origin in harness)
+# origin pre-added in harness (see above); save pushes by default
 dotsync save -m "initial dotfiles"
 # Simulate new machine
 rm -rf $SANDBOX/home2 && mkdir -p $SANDBOX/home2
@@ -114,12 +126,14 @@ dotsync restore --remote file://$SANDBOX/bare.git --categories shell,editor --ye
 
 **Assertions**
 
-- After `track`: `$REPO/.git` exists; `filelist` contains `.zshrc` and `.vimrc`.
+- After `track`: `$REPO/.git` exists; `filelist` contains `.zshrc` and `.vimrc`; mirror paths may already exist (auto-update).
 - After `save`: exit 0; `git -C $REPO log -1` shows commit; `git -C $REPO ls-remote origin` has refs (push succeeded).
 - Mirror paths exist: `dotfiles/plain/shell/.zshrc`, `dotfiles/plain/editor/.vimrc`.
 - After restore on `home2`: both files exist under `home2` with original bytes.
-- **SC1:** No path under `home2` is a symlink (`find home2 -type l` empty for managed paths).
+- **SC1:** No path under `home2` is a dotsync home→repo symlink (`find home2 -type l` empty for managed paths; user symlinks recreated by `restore_symlinks` are allowed — see S5).
 - `home2/.dotfiles` cloned and at same commit as post-save `$REPO`.
+
+**Interactive note:** If origin is not pre-added, first `save` prompts for remote URL via `input()` — list L1 among interactive scenarios or always pre-add origin in harness.
 
 **Cleanup**
 
@@ -200,6 +214,44 @@ dotsync track .gitconfig tools
 - `$HOME/.dotfiles/.git` exists (default repo location when `DOTSYNC_REPO` unset).
 - `filelist` contains `.gitconfig`.
 - `$HOME/.gitconfig` unchanged (still regular file at home).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### L5 — `track` auto-update side effects
+
+**Setup**
+
+1. `$HOME` only; no `$REPO` yet.
+2. Write `$HOME/.zshrc` with `export ZSH=1\n`.
+
+**Commands (default auto-update)**
+
+```bash
+dotsync track .zshrc shell
+```
+
+**Assertions (auto-update on)**
+
+- Exit 0.
+- Mirror `dotfiles/plain/shell/.zshrc` exists **immediately** (before any explicit `save`).
+- `$HOME/.zshrc` is a regular file, not a symlink to `$REPO`.
+- Document: auto-update swallows sync exceptions and still returns 0 — harness may assert mirror bytes, not exit code alone.
+
+**Variant (`--no-auto-update`)**
+
+```bash
+# fresh sandbox
+dotsync track --no-auto-update .zshrc shell
+```
+
+**Assertions (auto-update off)**
+
+- `filelist` contains `.zshrc`.
+- Mirror path `dotfiles/plain/shell/.zshrc` does **not** exist until a subsequent `save`.
 
 **Cleanup**
 
@@ -341,7 +393,8 @@ dotsync restore common --non-interactive --conflict overwrite
 **Assertions**
 
 - Exit code non-zero.
-- stderr/log contains pull failure message (e.g. `Failed to pull latest changes`).
+- stderr/log contains exact dotsync message `Failed to pull latest changes` (do **not** assert on git's diverged/non-FF wording — git stderr is not captured by `Git.run`).
+- Raw git stderr may appear on the test process stderr; harness should tolerate it.
 - `$HOME/.file` still absent (no partial restore).
 
 **Cleanup**
@@ -385,14 +438,16 @@ dotsync restore common --skip-pull --non-interactive --conflict overwrite
 **Commands**
 
 ```bash
-dotsync restore common --non-interactive --skip-pull --conflict overwrite
+dotsync restore common -vv --non-interactive --conflict overwrite
 ```
 
 **Assertions**
 
 - Exit 0.
-- File restored from local repo.
-- stdout/stderr notes no remote / using local HEAD (exact wording per implementation).
+- stdout contains `Restoring from commit <local sha>` where `<local sha>` matches `git -C $REPO rev-parse HEAD`.
+- At `-vv`, log contains debug line `No remote configured; using local repository`.
+- File restored from local repo mirror.
+- Do **not** use `--skip-pull` here — with `--skip-pull` the no-remote debug path is bypassed.
 
 **Cleanup**
 
@@ -613,7 +668,7 @@ dotsync save --no-push --yes --non-interactive editor
 
 - `old.json` absent from repo mirror after save.
 - `settings.json` still present.
-- With interactive run: user saw deletion list before confirm.
+- **Interactive variant only:** user saw deletion list before confirm (`confirm_prune` skips the list under `--non-interactive`).
 
 **Cleanup**
 
@@ -774,7 +829,35 @@ dotsync restore editor --non-interactive --skip-pull --conflict overwrite
 **Assertions**
 
 - `$HOME/.config/app/real.txt` regular file with `hello`.
-- If DESIGN restore rules apply: `link.txt` is symlink to `real.txt` **when target exists in restored tree**; otherwise regular file at link path — assert per current `restore_symlinks` behavior documented in implementation.
+- `link.txt` is a **user** symlink to `real.txt` (expected per `restore_symlinks` when relative target exists in restored tree) — this does **not** violate SC1 (no dotsync home→repo symlinks).
+- External/absolute targets are copied as regular files, not recreated as symlinks (`tree.py` 264–268).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### S6 — External symlink save→restore round-trip
+
+**Maps to:** SC3
+
+**Setup**
+
+1. Same as S2: `$SANDBOX/external/secret.cfg` → `external-data`; filelist `@tree:.config/app:tools`; `$HOME/.config/app/link.cfg` → symlink to external file.
+2. Complete S2 save first.
+
+**Commands**
+
+```bash
+rm -rf $HOME/.config/app
+dotsync restore tools --non-interactive --skip-pull --conflict overwrite
+```
+
+**Assertions**
+
+- `$HOME/.config/app/link.cfg` exists with content `external-data` (regular file copy when external target cannot be recreated as symlink).
+- **Known implementation risk:** save writes materialized bytes under `plugin_dir/.dotsync/materialized/…` but `restore_symlinks` reads from `dotsync_repo/.dotsync/materialized/…` — this scenario may **fail** and expose a save/restore path mismatch. Treat failure as a visible bug, not a flaky test.
 
 **Cleanup**
 
@@ -787,6 +870,8 @@ dotsync restore editor --non-interactive --skip-pull --conflict overwrite
 ### E1 — track --encrypt → save → restore round-trip
 
 **Maps to:** SC3 (encrypted content materialized as ciphertext in repo)
+
+**Prerequisite:** Encrypt plugin isolation verified (writes only under `$REPO/.plugins/encrypt`; see sandbox conventions).
 
 **Setup**
 
@@ -956,14 +1041,15 @@ dotsync save common --non-interactive
 
 ```bash
 dotsync restore common
-# Do not complete overwrite — only capture output until prompt
+# Send 'c' (cancel) via stdin or pexpect when prompt appears — do not leave restore hanging
 ```
 
 **Assertions**
 
-- stdout/stderr contains binary summary (e.g. `Binary files differ` or size/hash summary per `interaction.show_restore_diff`).
+- stdout/stderr contains `Binary files differ: $HOME/.bin` (NUL-byte detection per `interaction.show_restore_diff`).
 - Does **not** dump raw binary to terminal.
-- Prompt still offers overwrite / cancel.
+- Prompt offers overwrite / cancel.
+- After cancel (`c`): exit non-zero; `$HOME/.bin` unchanged (original conflicting bytes).
 
 **Cleanup**
 
@@ -994,22 +1080,68 @@ dotsync save --no-push --non-interactive common
 
 ---
 
+### B6 — Non-interactive save without remote must not hang
+
+**Maps to:** SC2
+
+**Setup**
+
+1. Init `$REPO` with `filelist` + home file ready; **no** `origin`.
+
+**Commands**
+
+```bash
+dotsync save --non-interactive common
+# No --no-push — exercises push_with_remote path
+```
+
+**Assertions**
+
+- Exits non-zero **without hanging** (closed stdin → `EOFError` today; harness must use timeout).
+- Does not print success/durability message claiming push succeeded.
+- Document harness rule: all other non-interactive `save` calls must pre-add `origin` or pass `--no-push`.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
 ## Harness implementation notes (Step 4 — not in scope for Step 1)
 
 - Map each scenario ID to a pytest parametrized case or explicit function in `test_scenarios.py`.
 - Provide `sandbox_factory` fixture: creates HOME, REPO, optional bare remote, sets env, returns paths + `run_dotsync(*args)` helper.
 - Mark suite: `@pytest.mark.blackbox` (register in `pyproject.toml`).
-- For interactive scenarios (C1, C2, T3, B2, B4): use stdin pipe or documented input sequence.
+- For interactive scenarios (C1, C2, T3, B2, B4, **L1** if origin not pre-added): use stdin pipe, `pexpect`, or pre-add origin in harness.
+- Treat default `save` (without `--no-push`) and single-file `track` auto-update restore as **potentially interactive** even when `--non-interactive` is set elsewhere — `push_with_remote` and auto-update restore can call `input()`.
 - Priority P0 scenarios should pass before P1/P2 in CI ordering if runtime is constrained.
+- Suggested CI gate order: pull-safety (RP) + conflicts (C) + boundaries (B), then mirror/lifecycle/trees/symlinks, then encrypt.
 
 ---
 
 ## Review checklist (Opus 4.8 gate)
 
-- [ ] All DESIGN success criteria SC1–SC7 covered by at least one scenario.
-- [ ] Sandbox isolation assumptions safe (no real `$HOME`, no network except `file://` git).
-- [ ] Missing edge cases: v1 deprecation aliases, category filtering, restore wizard non-interactive, encrypt tree `@tree:...|encrypt`, large-file / permission errors.
-- [ ] Priority ordering reasonable for CI.
-- [ ] Assertions observable via subprocess exit code + filesystem + stdout/stderr only.
+- [x] All DESIGN success criteria SC1–SC7 covered by at least one scenario.
+- [x] Sandbox isolation assumptions updated (safety_checks, hostname pin, encrypt isolation, non-interactive save guard).
+- [ ] Missing edge cases still deferred: v1 deprecation alias warnings, `@tree:…|encrypt`, multi-candidate selection (`--candidate`), large-file / permission errors.
+- [x] Priority ordering adjusted (S6, B6 → P0; E1 → P1; L5 added).
+- [x] Assertions observable via subprocess exit code + filesystem + stdout/stderr only.
 
-**Review feedback:** _(pending Step 2)_
+---
+
+## Opus 4.8 review summary (2026-07-16)
+
+**Review date:** 2026-07-16  
+**Reviewer:** Opus 4.8 (T16 Step 2 gate)  
+**Status:** Feedback merged into this plan (Step 3).
+
+### Key findings
+
+1. **External symlink restore gap (SC3):** Save writes materialized external content under `plugin_dir/.dotsync/materialized/` but restore reads from `dotsync_repo/.dotsync/materialized/` — S6 added as P0 round-trip to expose or verify fix.
+2. **Non-interactive save / no remote (SC2):** `push_with_remote` calls `input()` unconditionally when no origin — B6 added as P0 hang guard; sandbox convention documents the rule.
+3. **`track` auto-update conflation:** Default `track` mirrors immediately and may invoke interactive restore — L5 added; L1 notes mirror may pre-exist before `save`.
+4. **RP2/RP4 assertion fixes:** RP2 asserts only dotsync's `Failed to pull latest changes` (not git stderr); RP4 drops `--skip-pull`, uses `-vv`, asserts `Restoring from commit <sha>`.
+5. **Sandbox hardening:** Documented `safety_checks` prerequisites, hostname pinning, encrypt plugin isolation, and post-run sandbox scan.
+6. **Harness risks:** Closed stdin → `EOFError` on unexpected prompts; git stderr not captured; non-interactive restore over differing files requires `--conflict overwrite`.
+
+**Review feedback:** Merged — see scenarios S6, B6, L5 and updated sandbox conventions above.
