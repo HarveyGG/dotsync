@@ -25,14 +25,17 @@ class TestPlainPlugin:
     def test_remove(self, tmp_path):
         plugin = PlainPlugin(str(tmp_path / 'data'))
 
-        open(tmp_path / 'file', 'w').close()
+        data = 'test data'
+        with open(tmp_path / 'file', 'w') as f:
+            f.write(data)
         plugin.remove(tmp_path / 'file', tmp_path / 'file2')
 
         assert (tmp_path / 'file').exists()
         assert (tmp_path / 'file2').exists()
         assert not (tmp_path / 'file').is_symlink()
-        assert (tmp_path / 'file2').is_symlink()
-        assert (tmp_path / 'file').samefile(tmp_path / 'file2')
+        assert not (tmp_path / 'file2').is_symlink()
+        with open(tmp_path / 'file2', 'r') as f:
+            assert f.read() == data
 
     def test_samefile_link(self, tmp_path):
         plugin = PlainPlugin(str(tmp_path / 'data'))
@@ -45,10 +48,23 @@ class TestPlainPlugin:
     def test_samefile_copy(self, tmp_path):
         plugin = PlainPlugin(str(tmp_path / 'data'))
 
-        open(tmp_path / 'file', 'w').close()
-        open(tmp_path / 'file2', 'w').close()
+        with open(tmp_path / 'file', 'w') as f:
+            f.write('a')
+        with open(tmp_path / 'file2', 'w') as f:
+            f.write('b')
 
         assert not plugin.samefile(tmp_path / 'file', tmp_path / 'file2')
+
+    def test_samefile_identical_content(self, tmp_path):
+        plugin = PlainPlugin(str(tmp_path / 'data'))
+
+        data = 'same content'
+        with open(tmp_path / 'file', 'w') as f:
+            f.write(data)
+        with open(tmp_path / 'file2', 'w') as f:
+            f.write(data)
+
+        assert plugin.samefile(tmp_path / 'file', tmp_path / 'file2')
 
     def test_hard_mode(self, tmp_path):
         plugin = PlainPlugin(str(tmp_path / 'data'), hard=True)
