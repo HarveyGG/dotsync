@@ -1,14 +1,17 @@
 import logging
 import os
 import re
+from dataclasses import asdict
 
 import dotsync.info as info
+from dotsync.tree import TreeEntry
 
 
 class Filelist:
     def __init__(self, fname):
         self.groups = {}
         self.files = {}
+        self.trees = []
 
         logging.debug(f'parsing filelist in {fname}')
 
@@ -17,6 +20,10 @@ class Filelist:
                 line = line.strip()
 
                 if not line or line.startswith('#'):
+                    continue
+
+                if line.startswith('@tree:'):
+                    self._parse_tree_line(line[len('@tree:'):])
                     continue
 
                 # group
@@ -45,6 +52,24 @@ class Filelist:
                         'categories': categories,
                         'plugin': plugin
                     })
+
+    def _parse_tree_line(self, line):
+        split = re.split('[:|]', line)
+
+        pattern, categories, plugin = split[0], ['common'], 'plain'
+        if len(split) >= 2:
+            if ':' in line:
+                categories = split[1].split(',')
+            else:
+                plugin = split[1]
+        if len(split) >= 3:
+            plugin = split[2]
+
+        self.trees.append(asdict(TreeEntry(
+            pattern=pattern,
+            categories=categories,
+            plugin=plugin,
+        )))
 
     def activate(self, categories):
         # expand groups
