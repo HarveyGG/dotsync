@@ -23,6 +23,10 @@ from dotsync.calc_ops import CalcOps, RestoreAborted
 from dotsync.tree import materialize_symlinks, pattern_walk_root, restore_symlinks
 from dotsync.plugins.plain import PlainPlugin
 from dotsync.plugins.encrypt import EncryptPlugin
+from dotsync.interaction import (
+    collect_filelist_categories,
+    prompt_category_selection,
+)
 import dotsync.info as info
 
 
@@ -1430,6 +1434,122 @@ def change_password(dotfiles, plugins):
     return 0
 
 
+def print_restore_summary(sha, categories, path_count):
+    """Show planned restore summary before copying files to home."""
+    print('\nRestore summary:')
+    print(f'  Commit: {sha}')
+    print(f'  Categories: {", ".join(categories)}')
+    print(f'  Paths: {path_count}')
+
+
+def default_wizard_repo_path(home):
+    """Return the clone target for the restore wizard."""
+    env_repo = os.environ.get('DOTSYNC_REPO')
+    if env_repo:
+        return os.path.abspath(os.path.expanduser(env_repo))
+    return os.path.join(home, '.dotfiles')
+
+
+def run_restore_wizard(cwd, home, args):
+    """Bootstrap a new machine: clone remote, pick categories, restore."""
+    policy = from_args(args)
+    repo = default_wizard_repo_path(home)
+
+    if policy.non_interactive:
+        if not args.remote:
+            logging.error(
+                '--remote is required for non-interactive restore without a local repo'
+            )
+            return 1
+        if not args.categories_filter:
+            logging.error(
+                '--categories is required for non-interactive restore without a local repo'
+            )
+            return 1
+        remote_url = args.remote
+        selected = list(args.categories)
+    else:
+        if args.remote:
+            remote_url = args.remote
+        else:
+            remote_url = input('Enter Git remote URL for your dotfiles: ').strip()
+            if not remote_url:
+                logging.error('Aborted: no remote URL provided')
+                return 1
+
+    if os.path.exists(repo):
+        logging.error(
+            f'{repo} already exists; remove it or set DOTSYNC_REPO to another path'
+        )
+        return 1
+
+    try:
+        Git.clone(remote_url, repo)
+    except FileExistsError as e:
+        logging.error(str(e))
+        return 1
+    except GitPullError as e:
+        logging.error(str(e))
+        return 1
+
+    flist_fname = os.path.join(repo, 'filelist')
+    if not os.path.isfile(flist_fname):
+        logging.error('Cloned repository has no filelist')
+        return 1
+
+    if not safety_checks(repo, home, init=False):
+        logging.error(f'safety checks failed for {repo}, exiting')
+        return 1
+
+    filelist_obj = Filelist(flist_fname)
+    git = Git(repo)
+    sha = ensure_repo_current(git, policy)
+    if sha is None:
+        return 1
+
+    if not policy.non_interactive:
+        available = collect_filelist_categories(filelist_obj)
+        default_group = filelist_obj.groups.get(info.hostname)
+        if args.categories_filter:
+            selected = list(args.categories)
+            unknown = [c for c in selected if c not in available]
+            if unknown:
+                logging.error(f'Unknown categories: {", ".join(unknown)}')
+                return 1
+        else:
+            selected = prompt_category_selection(available, default_group=default_group)
+            if not selected:
+                logging.error('No categories selected')
+                return 1
+
+    plugins, plugin_dirs, dotfiles = setup_plugins_and_dirs(repo)
+    plugins['plain'].hard = args.hard_mode
+
+    try:
+        active_filelist = prepare_active_filelist(
+            filelist_obj, home, selected, plugin_dirs, from_repo=True,
+        )
+        manifest = filelist_obj.build_restore_manifest(
+            plugin_dirs, selected, repo,
+        )
+    except RuntimeError:
+        logging.error(f'Error activating categories: {selected}')
+        return 1
+
+    print_restore_summary(sha, selected, len(active_filelist))
+
+    if not policy.non_interactive:
+        ans = input('\nProceed with restore? [Yn] ').strip().lower()
+        if ans in ('n', 'no'):
+            logging.info('Restore cancelled')
+            return 1
+
+    args.categories = selected
+    return restore_files(
+        repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs, home, args,
+    )
+
+
 def setup_plugins_and_dirs(repo):
     """Setup plugins and plugin directories, return (plugins, plugin_dirs, dotfiles)"""
     dotfiles = os.path.join(repo, 'dotfiles')
@@ -1510,6 +1630,8 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
     else:
         found_repo = find_dotsync_repo(cwd, home)
         if found_repo is None:
+            if args.action == Actions.RESTORE:
+                return run_restore_wizard(cwd, home, args)
             logging.error('Could not find dotsync repository')
             logging.info('Search strategy:')
             logging.info('  1. Environment variable DOTSYNC_REPO')

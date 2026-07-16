@@ -2,6 +2,80 @@ import difflib
 import os
 
 
+def collect_filelist_categories(filelist):
+    """Return sorted unique category names from a Filelist."""
+    categories = set()
+    for instances in filelist.files.values():
+        for instance in instances:
+            categories.update(instance['categories'])
+    for group_cats in filelist.groups.values():
+        categories.update(group_cats)
+    for tree in filelist.trees:
+        categories.update(tree['categories'])
+    return sorted(categories)
+
+
+def prompt_category_selection(categories, default_group=None):
+    """Interactively pick one or more categories from a numbered checklist."""
+    if not categories:
+        print('No categories found in filelist.')
+        return []
+
+    print('\nAvailable categories:')
+    for i, cat in enumerate(categories, 1):
+        hint = ''
+        if default_group and cat in default_group:
+            hint = ' (recommended for this machine)'
+        print(f'  [{i}] {cat}{hint}')
+    print('  [a] All categories')
+    print()
+
+    while True:
+        raw = input(
+            'Select categories (numbers, names, comma-separated, or "a"): '
+        ).strip()
+        if not raw:
+            print('Please select at least one category.')
+            continue
+        if raw.lower() in ('a', 'all'):
+            return list(categories)
+
+        selected = []
+        invalid = False
+        for part in raw.split(','):
+            part = part.strip()
+            if not part:
+                continue
+            if part.isdigit():
+                idx = int(part) - 1
+                if 0 <= idx < len(categories):
+                    selected.append(categories[idx])
+                else:
+                    print(f'Invalid number: {part}')
+                    invalid = True
+                    break
+            elif part in categories:
+                selected.append(part)
+            else:
+                print(f'Unknown category: {part}')
+                invalid = True
+                break
+
+        if invalid:
+            continue
+        if not selected:
+            print('Please select at least one category.')
+            continue
+
+        seen = set()
+        result = []
+        for cat in selected:
+            if cat not in seen:
+                seen.add(cat)
+                result.append(cat)
+        return result
+
+
 def show_restore_diff(source_path, dest_path):
     """Show unified diff between home dest and repo source, or a binary summary."""
     try:

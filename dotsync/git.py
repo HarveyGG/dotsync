@@ -26,6 +26,27 @@ class Git:
 
         self.repo_dir = repo_dir
 
+    @classmethod
+    def clone(cls, url, dest_dir):
+        """Clone a remote repository into dest_dir and return a Git handle."""
+        if os.path.exists(dest_dir):
+            raise FileExistsError(f'{dest_dir} already exists')
+        parent = os.path.dirname(dest_dir)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        logging.info(f'cloning {url} to {dest_dir}')
+        try:
+            subprocess.run(
+                ['git', 'clone', url, dest_dir],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except subprocess.CalledProcessError as e:
+            err = (e.stderr or b'').decode().strip()
+            raise GitPullError(f'git clone failed: {err}') from e
+        return cls(dest_dir)
+
     def run(self, cmd):
         if type(cmd) is not list:
             cmd = shlex.split(cmd)

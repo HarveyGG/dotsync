@@ -53,6 +53,16 @@ class TestArguments:
         assert not Arguments([act]).non_interactive
         assert Arguments(['--non-interactive', act]).non_interactive
 
+    def test_yes_sets_non_interactive(self):
+        assert Arguments(['restore', '--yes']).non_interactive
+        assert Arguments(['restore', '-y']).non_interactive
+
+    def test_remote_and_categories_filter(self):
+        args = Arguments(['restore', '--remote', 'git@github.com:user/dotfiles.git',
+                          '--categories', 'shell,vim'])
+        assert args.remote == 'git@github.com:user/dotfiles.git'
+        assert args.categories == ['shell', 'vim']
+
     def test_conflict_policy(self):
         act = self.valid_actions[0]
         assert Arguments([act]).conflict == 'prompt'

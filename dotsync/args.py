@@ -72,6 +72,12 @@ class Arguments:
                             help='remove mirrored files from repository when untracking')
         parser.add_argument('--non-interactive', action='store_true',
                             help='skip prompts, use policy defaults')
+        parser.add_argument('--yes', '-y', action='store_true',
+                            help='non-interactive mode; skip confirmation prompts')
+        parser.add_argument('--remote', default=None,
+                            help='Git remote URL for restore wizard (new machine)')
+        parser.add_argument('--categories', dest='categories_filter', default=None,
+                            help='comma-separated categories for restore')
 
         parser.add_argument('action', choices=[a.value for a in Actions],
                             help=HELP['action'])
@@ -167,6 +173,11 @@ class Arguments:
         self.hard_mode = args.hard
         self.encrypt = getattr(args, 'encrypt', False)
         self.non_interactive = getattr(args, 'non_interactive', False)
+        self.yes = getattr(args, 'yes', False)
+        if self.yes:
+            self.non_interactive = True
+        self.remote = getattr(args, 'remote', None)
+        self.categories_filter = getattr(args, 'categories_filter', None)
         self.conflict = getattr(args, 'conflict', 'prompt')
         self.candidate = getattr(args, 'candidate', 'prompt')
         self.keep_going = getattr(args, 'keep_going', False)
@@ -177,6 +188,10 @@ class Arguments:
         self.purge_repo = getattr(args, 'purge_repo', False)
         self.action = Actions(args.action)
         self.categories = args.category
+        if self.categories_filter:
+            self.categories = [
+                c.strip() for c in self.categories_filter.split(',') if c.strip()
+            ]
 
     def __str__(self):
         return str(vars(self))
