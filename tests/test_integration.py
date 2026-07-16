@@ -28,7 +28,8 @@ class TestIntegration:
         (home / "foo").touch()
         main(args=['update'], cwd=str(repo), home=str(home))
         assert (repo / "dotfiles").is_dir()
-        assert not (home / "foo").exists()
+        assert (home / "foo").is_file()
+        assert not (home / "foo").is_symlink()
 
         filelist.write_text("foo\nbar")
         main(args=['update'], cwd=str(repo), home=str(home))
@@ -36,8 +37,10 @@ class TestIntegration:
 
         (home / "bar").touch()
         main(args=['update'], cwd=str(repo), home=str(home))
-        assert not (home / "foo").exists()
-        assert not (home / "bar").exists()
+        assert (home / "foo").is_file()
+        assert (home / "bar").is_file()
+        assert not (home / "foo").is_symlink()
+        assert not (home / "bar").is_symlink()
         assert (repo / "dotfiles" / "plain" / "common" / "bar").exists()
 
     # adds a file to the repo, removes it from home and then restores it
@@ -47,7 +50,8 @@ class TestIntegration:
         (home / "foo").touch()
         main(args=['update'], cwd=str(repo), home=str(home))
 
-        assert not (home / "foo").exists()
+        assert (home / "foo").is_file()
+        assert not (home / "foo").is_symlink()
 
         main(args=['restore'], cwd=str(repo), home=str(home))
 
@@ -64,7 +68,8 @@ class TestIntegration:
         filelist.write_text("foo:asd,common")
         main(args=['update'], cwd=str(repo), home=str(home))
 
-        assert not (home / "foo").exists()
+        assert (home / "foo").is_file()
+        assert not (home / "foo").is_symlink()
         assert (repo / "dotfiles" / "plain" / "asd" / "foo").exists()
         assert not (repo / "dotfiles" / "plain" / "asd" / "foo").is_symlink()
         assert not (repo / "dotfiles" / "plain" / "common" / "foo").exists()

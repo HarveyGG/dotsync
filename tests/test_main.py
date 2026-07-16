@@ -71,7 +71,8 @@ class TestMain:
         open(home / 'file', 'w').close()
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
-        assert not (home / 'file').exists()
+        assert (home / 'file').is_file()
+        assert not (home / 'file').is_symlink()
         assert (repo / 'dotfiles' / 'plain' / 'common' / 'file').exists()
 
     def test_update_home_repo(self, tmp_path, monkeypatch):
@@ -79,7 +80,8 @@ class TestMain:
         open(home / 'file', 'w').close()
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
-        assert not (home / 'file').exists()
+        assert (home / 'file').is_file()
+        assert not (home / 'file').is_symlink()
 
         monkeypatch.setattr('builtins.input', lambda p: '0')
 
@@ -93,7 +95,7 @@ class TestMain:
         open(home / 'file', 'w').close()
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
-        assert not (home / 'file').exists()
+        (home / 'file').unlink()
 
         assert main(args=['restore'], cwd=str(repo), home=str(home)) == 0
         assert (home / 'file').is_file()
@@ -104,7 +106,6 @@ class TestMain:
         open(home / 'file', 'w').close()
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
-        assert not (home / 'file').exists()
 
         monkeypatch.setattr('builtins.input', lambda p: 'y')
 
@@ -122,7 +123,7 @@ class TestMain:
             f.write(data)
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
-        assert not (home / 'file').exists()
+        (home / 'file').unlink()
 
         assert main(args=['restore', '--hard'],
                     cwd=str(repo), home=str(home)) == 0
@@ -787,6 +788,9 @@ class TestMain:
             return _real(self, source, dest)
         monkeypatch.setattr(dotsync.plugins.encrypt.EncryptPlugin, 'remove', failing_remove)
 
+        (home / '.secret1').unlink()
+        (home / '.secret2').unlink()
+
         ret = main(args=['restore', '--keep-going', 'test'], cwd=str(repo), home=str(home))
         assert ret == 1
         assert (home / '.file1').exists()
@@ -809,6 +813,8 @@ class TestMain:
             return _real(self, source, dest)
         monkeypatch.setattr(dotsync.plugins.encrypt.EncryptPlugin, 'remove', failing_remove)
 
+        (home / '.secret').unlink()
+
         ret = main(args=['restore', 'test'], cwd=str(repo), home=str(home))
         assert ret == 1
         assert (home / '.file1').exists()
@@ -828,7 +834,7 @@ class TestMain:
         monkeypatch.setattr('getpass.getpass', mock_getpass)
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert not (home / '.secret').exists()
+        assert (home / '.secret').exists()
         
         # Restore encrypted file (will decrypt again)
         assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
@@ -883,7 +889,6 @@ class TestMain:
         test_file.write_text('repo content')
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert not (home / '.testfile').exists()
         
         (home / '.testfile').write_text('home content')
         
@@ -904,6 +909,7 @@ class TestMain:
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
         
+        (home / '.testfile').unlink()
         os.symlink('/non/existent/path', home / '.testfile')
         assert not (home / '.testfile').exists()
 
@@ -965,7 +971,8 @@ class TestMain:
         
         assert (repo / 'dotfiles' / 'plain' / 'cat1' / '.testfile').exists()
         assert not (repo / 'dotfiles' / 'plain' / 'cat2' / '.testfile').exists()
-        assert not (home / '.testfile').exists()
+        assert (home / '.testfile').is_file()
+        assert not (home / '.testfile').is_symlink()
 
     def test_update_conflict_resolution(self, tmp_path, monkeypatch):
         """Test update when multiple candidates exist"""
@@ -1227,7 +1234,6 @@ class TestMain:
         test_file.write_text('test content')
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert not (home / '.testfile').exists()
         
         assert main(args=['restore', '--hard', 'test'], cwd=str(repo), home=str(home)) == 0
         assert (home / '.testfile').exists()

@@ -103,7 +103,11 @@ class CalcOps:
                         continue
 
                 restore_path_file = os.path.join(self.restore_path, path)
-                if restore_path_file in candidates and source != restore_path_file:
+                if (
+                    self.plugin.hard
+                    and restore_path_file in candidates
+                    and source != restore_path_file
+                ):
                     fops.remove(restore_path_file)
 
             else:
@@ -126,10 +130,11 @@ class CalcOps:
                         fops.copy(source, master)
                 else:
                     fops.plugin(self.plugin.apply, source, master)
-                    if source in original_path:
-                        fops.remove(original_path[source])
-                    else:
-                        fops.remove(source)
+                    if self.plugin.hard:
+                        if source in original_path:
+                            fops.remove(original_path[source])
+                        else:
+                            fops.remove(source)
 
             for slave in slaves:
                 if slave == source:

@@ -78,6 +78,7 @@ def key_stretch(password, salt):
 
 class EncryptPlugin(Plugin):
     def __init__(self, data_dir, *args, **kwargs):
+        self.hard = kwargs.pop('hard', False)
         self.gpg = None
         self.hashes_path = os.path.join(data_dir, 'hashes')
         self.modes_path = os.path.join(data_dir, 'modes')

@@ -1204,24 +1204,25 @@ def restore_files(repo, filelist_obj, active_filelist, manifest, plugins, plugin
 
     for plugin in plugins:
         flist = plugin_filelist(active_filelist, plugin)
-        if not flist:
-            continue
-        logging.debug(f'active filelist for plugin {plugin}: {flist}')
-
         plugin_dir = plugin_dirs[plugin]
         calc_ops = CalcOps(plugin_dir, home, plugins[plugin], policy=policy)
 
+        if flist:
+            logging.debug(f'active filelist for plugin {plugin}: {flist}')
+
         try:
-            calc_ops.restore(flist).apply(args.dry_run, keep_going=policy.keep_going)
-            restore_symlinks(
-                home,
-                plugin_dir,
-                repo,
-                active_cats,
-                plugins[plugin],
-                policy,
-                dry_run=args.dry_run,
-            )
+            if flist:
+                calc_ops.restore(flist).apply(args.dry_run, keep_going=policy.keep_going)
+            if plugin == 'plain':
+                restore_symlinks(
+                    home,
+                    plugin_dir,
+                    repo,
+                    active_cats,
+                    plugins[plugin],
+                    policy,
+                    dry_run=args.dry_run,
+                )
         except RestoreAborted as e:
             logging.error(str(e))
             return 1
@@ -1233,8 +1234,9 @@ def restore_files(repo, filelist_obj, active_filelist, manifest, plugins, plugin
             logging.error(str(e))
             return 1
 
-        clean_ops.append(calc_ops.clean_repo(manifest.get(plugin, [])))
-        plugins[plugin].clean_data(manifest.get(plugin, []))
+        if flist:
+            clean_ops.append(calc_ops.clean_repo(manifest.get(plugin, [])))
+            plugins[plugin].clean_data(manifest.get(plugin, []))
 
     for clean_op in clean_ops:
         try:
@@ -1539,6 +1541,7 @@ def run_restore_wizard(cwd, home, args):
 
     plugins, plugin_dirs, dotfiles = setup_plugins_and_dirs(repo)
     plugins['plain'].hard = args.hard_mode
+    plugins['encrypt'].hard = args.hard_mode
 
     try:
         active_filelist = prepare_active_filelist(
@@ -1578,7 +1581,8 @@ def setup_plugins_and_dirs(repo):
             hard=False),  # Will be set from args if needed
         'encrypt': EncryptPlugin(
             data_dir=os.path.join(plugins_data_dir, 'encrypt'),
-            repo_dir=os.path.join(dotfiles, 'encrypt'))
+            repo_dir=os.path.join(dotfiles, 'encrypt'),
+            hard=False)
     }
     
     plugin_dirs = {plugin: os.path.join(dotfiles, plugin) for plugin in plugins}
@@ -1672,6 +1676,7 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
     # Setup plugins early for add command (needed for auto-update)
     plugins, plugin_dirs, dotfiles = setup_plugins_and_dirs(repo)
     plugins['plain'].hard = args.hard_mode
+    plugins['encrypt'].hard = args.hard_mode
 
     # check for track / add (deprecated alias)
     if args.action in (Actions.TRACK, Actions.ADD):

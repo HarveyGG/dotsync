@@ -154,7 +154,10 @@ def materialize_symlinks(
             home_rel, resolved_rel, resolved_abs, category, tree_pattern, watched_paths
         )
         if canonical not in copied:
-            dest = os.path.join(repo, canonical)
+            if canonical.startswith('.dotsync/'):
+                dest = os.path.join(dotsync_repo, canonical)
+            else:
+                dest = os.path.join(repo, canonical)
             _copy_content_to_repo(resolved_abs, dest)
             copied.add(canonical)
 

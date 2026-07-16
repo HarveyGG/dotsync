@@ -24,6 +24,8 @@ def test_restore_calls_pull_before_copy(monkeypatch, tmp_path):
     assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
     subprocess.run(['git', 'remote', 'add', 'origin', str(repo)], cwd=str(repo), check=True)
 
+    (home / '.file').write_text('modified home content')
+
     order = []
     git = Git(str(repo))
     expected_sha = git.head_sha()
@@ -42,7 +44,8 @@ def test_restore_calls_pull_before_copy(monkeypatch, tmp_path):
     monkeypatch.setattr(Git, 'pull_ff_only', track_pull)
     monkeypatch.setattr(PlainPlugin, 'remove', track_copy)
 
-    assert main(args=['restore'], cwd=str(repo), home=str(home)) == 0
+    assert main(args=['restore', '--non-interactive', '--conflict', 'overwrite'],
+                cwd=str(repo), home=str(home)) == 0
     assert 'pull' in order
     assert 'copy' in order
     assert order.index('pull') < order.index('copy')
@@ -90,9 +93,9 @@ def test_restore_pull_failure_aborts(monkeypatch, tmp_path, caplog):
 
     monkeypatch.setattr(Git, 'pull_ff_only', fail_pull)
 
-    assert not (home / '.file').exists()
+    assert (home / '.file').exists()
     assert main(args=['restore'], cwd=str(repo), home=str(home)) == 1
-    assert not (home / '.file').exists()
+    assert (home / '.file').exists()
     assert 'Failed to pull latest changes' in caplog.text
 
 

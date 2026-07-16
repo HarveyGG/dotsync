@@ -82,7 +82,8 @@ class TestCalcOps:
         assert not (repo / 'cat1' / 'file').is_symlink()
         assert (repo / 'cat1' / 'file').exists()
         assert not (repo / 'cat2' / 'file').exists()
-        assert not (home / 'file').exists()
+        assert (home / 'file').is_file()
+        assert not (home / 'file').is_symlink()
 
     def test_update_linkedhome_master_noslave(self, tmp_path):
         home, repo = self.setup_home_repo(tmp_path)
@@ -113,6 +114,9 @@ class TestCalcOps:
         assert (repo / 'cat' / 'file').exists()
         assert not (repo / 'cat' / 'file').is_symlink()
 
+        from dotsync.policy import RunPolicy
+        policy = RunPolicy(non_interactive=True, conflict='overwrite')
+        calc = CalcOps(repo, home, PlainPlugin(tmp_path / '.data'), policy=policy)
         calc.restore({'file': ['cat']}).apply()
 
         assert (home / 'file').is_file()
