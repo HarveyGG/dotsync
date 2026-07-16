@@ -186,6 +186,7 @@ class TestMain:
         ret = main(args=['update', '--hard'], cwd=str(repo), home=str(home))
         assert ret == 0
         assert main(args=['restore'], cwd=str(repo), home=str(home)) == 0
+        capsys.readouterr()
 
         (home / 'file').write_text('hello world')
 

@@ -99,6 +99,8 @@ class Arguments:
                             help='continue on file errors, report at end')
         parser.add_argument('--no-auto-update', action='store_true',
                             help='skip auto-update after add (for large dirs)')
+        parser.add_argument('--skip-pull', action='store_true',
+                            help='skip git pull before restore (unsafe)')
 
         # parse args
         args = parser.parse_args(args)
@@ -159,6 +161,7 @@ class Arguments:
         self.candidate = getattr(args, 'candidate', 'prompt')
         self.keep_going = getattr(args, 'keep_going', False)
         self.no_auto_update = getattr(args, 'no_auto_update', False)
+        self.skip_pull = getattr(args, 'skip_pull', False)
         self.action = Actions(args.action)
         self.categories = args.category
 

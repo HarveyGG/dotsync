@@ -71,3 +71,8 @@ class TestArguments:
         act = self.valid_actions[0]
         assert not Arguments([act]).keep_going
         assert Arguments(['--keep-going', act]).keep_going
+
+    def test_skip_pull(self):
+        act = self.valid_actions[0]
+        assert not Arguments([act]).skip_pull
+        assert Arguments(['--skip-pull', act]).skip_pull

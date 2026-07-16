@@ -18,7 +18,7 @@ from dotsync.file_ops import BatchApplyError
 from dotsync.policy import from_args
 from dotsync.checks import safety_checks
 from dotsync.flists import Filelist
-from dotsync.git import Git
+from dotsync.git import Git, GitPullError
 from dotsync.calc_ops import CalcOps
 from dotsync.plugins.plain import PlainPlugin
 from dotsync.plugins.encrypt import EncryptPlugin
@@ -925,10 +925,33 @@ def update_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
     return 0
 
 
+def ensure_repo_current(git, policy):
+    """Fetch and fast-forward pull before restore; return HEAD sha or None on failure."""
+    if policy.skip_pull:
+        sha = git.head_sha()
+    else:
+        try:
+            if git.has_remote():
+                sha = git.pull_ff_only()
+            else:
+                logging.debug('No remote configured; using local repository')
+                sha = git.head_sha()
+        except GitPullError as e:
+            logging.error(f'Failed to pull latest changes: {e}')
+            return None
+
+    print(f'Restoring from commit {sha}')
+    return sha
+
+
 def restore_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
     """Restore files from repository to home"""
     clean_ops = []
     policy = from_args(args)
+
+    git = Git(repo)
+    if ensure_repo_current(git, policy) is None:
+        return 1
 
     for plugin in plugins:
         flist = {path: filelist[path]['categories'] for path in filelist if
