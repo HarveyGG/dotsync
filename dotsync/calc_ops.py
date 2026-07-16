@@ -2,7 +2,16 @@ import os
 import logging
 
 from dotsync.file_ops import FileOps
-from dotsync.interaction import decide_candidate, decide_conflict
+from dotsync.interaction import (
+    decide_candidate,
+    decide_conflict,
+    prompt_restore_overwrite_or_cancel,
+    show_restore_diff,
+)
+
+
+class RestoreAborted(Exception):
+    pass
 
 
 class CalcOps:
@@ -147,7 +156,7 @@ class CalcOps:
         return fops
     
     def _handle_restore_conflict(self, source, dest):
-        """Handle conflict for restore operation (simpler than unmanage)"""
+        """Handle conflict for restore: show diff, overwrite, or abort entire restore."""
         if not os.path.exists(dest):
             if os.path.lexists(dest):
                 os.remove(dest)
@@ -167,14 +176,13 @@ class CalcOps:
                 return (True, True)
             if result == (True, False):
                 return (True, False)
-            return (False, False)
+            raise RestoreAborted(f'Restore aborted: {dest} conflicts with repository')
 
-        a = input(f'{dest} already exists, replace? [Yn] ')
-        a = 'y' if not a else a
-        if a.lower() == 'y':
+        show_restore_diff(source, dest)
+        if prompt_restore_overwrite_or_cancel(dest):
             os.remove(dest)
             return (True, True)
-        return (False, False)
+        raise RestoreAborted(f'Restore cancelled by user at {dest}')
 
     # removes links from restore path that point to the repo
     def clean(self, files):

@@ -809,10 +809,10 @@ class TestMain:
         
         (home / '.testfile').write_text('home content')
         
-        # User cancels
-        monkeypatch.setattr('builtins.input', lambda p: 'n')
+        # User cancels entire restore
+        monkeypatch.setattr('builtins.input', lambda p: 'c')
         
-        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 1
         
         # Should keep home content
         assert (home / '.testfile').read_text() == 'home content'

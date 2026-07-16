@@ -19,7 +19,7 @@ from dotsync.policy import from_args
 from dotsync.checks import safety_checks
 from dotsync.flists import Filelist
 from dotsync.git import Git, GitPullError
-from dotsync.calc_ops import CalcOps
+from dotsync.calc_ops import CalcOps, RestoreAborted
 from dotsync.plugins.plain import PlainPlugin
 from dotsync.plugins.encrypt import EncryptPlugin
 import dotsync.info as info
@@ -965,6 +965,9 @@ def restore_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
 
         try:
             calc_ops.restore(flist).apply(args.dry_run, keep_going=policy.keep_going)
+        except RestoreAborted as e:
+            logging.error(str(e))
+            return 1
         except BatchApplyError as e:
             for op_str, err in e.errors:
                 logging.error(f'{op_str}: {err}')
