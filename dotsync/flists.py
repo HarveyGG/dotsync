@@ -4,7 +4,13 @@ import re
 from dataclasses import asdict
 
 import dotsync.info as info
-from dotsync.tree import TreeEntry, walk_tree
+from dotsync.tree import (
+    TreeEntry,
+    expand_trees_from_repo,
+    pattern_has_glob,
+    pattern_walk_root,
+    walk_tree,
+)
 
 
 class Filelist:
@@ -114,6 +120,99 @@ class Filelist:
                 }
 
         return files
+
+    def _flatten_categories(self, categories):
+        expanded = [self.groups.get(c, [c]) for c in categories]
+        return [c for cat in expanded for c in cat]
+
+    def merge_active(self, home, categories, plugin_dir=None, from_repo=False):
+        """Merge atomic active files with tree entries from home or repo."""
+        files = self.activate(categories)
+        if from_repo:
+            if plugin_dir is None:
+                raise ValueError('plugin_dir is required when from_repo=True')
+            trees = expand_trees_from_repo(plugin_dir, self.trees, categories)
+        else:
+            trees = self.expand_trees(home, categories)
+
+        for path, info in trees.items():
+            if path in files:
+                logging.error('path active as both atomic file and tree entry: '
+                              f'{path}')
+                raise RuntimeError
+            files[path] = info
+
+        return files
+
+    def build_save_manifest(self, home, categories, symlink_canonicals=None):
+        """Manifest of allowed repo paths including expanded trees."""
+        manifest = self.manifest()
+        tree_files = self.expand_trees(home, categories)
+
+        for path, info in tree_files.items():
+            if info.get('kind') == 'symlink':
+                continue
+            plugin = info['plugin']
+            for category in self._expand_category_names(info['categories']):
+                manifest.setdefault(plugin, []).append(os.path.join(category, path))
+
+        if symlink_canonicals:
+            for plugin, paths in symlink_canonicals.items():
+                manifest.setdefault(plugin, []).extend(paths)
+
+        return manifest
+
+    def _expand_category_names(self, category_names):
+        expanded = []
+        for category in category_names:
+            if category in self.groups:
+                expanded.extend(self.groups[category])
+            else:
+                expanded.append(category)
+        return expanded
+
+    def find_tree_for_path(self, normalized_path):
+        """Return tree entry whose pattern matches normalized_path, if any."""
+        for tree in self.trees:
+            pattern = tree['pattern']
+            walk_root = pattern_walk_root(pattern)
+            if walk_root and not (
+                normalized_path == walk_root
+                or normalized_path.startswith(walk_root + '/')
+            ):
+                continue
+            if pattern_has_glob(pattern):
+                import fnmatch
+                if fnmatch.fnmatch(normalized_path, pattern):
+                    return tree
+                if fnmatch.fnmatch(normalized_path + '/', pattern + '/*'):
+                    return tree
+            elif normalized_path == pattern or normalized_path.startswith(pattern + '/'):
+                return tree
+        return None
+
+    def build_restore_manifest(self, plugin_dirs, categories, dotsync_repo):
+        """Manifest of allowed repo paths for restore/clean after pull."""
+        from dotsync.manifest import read_manifest
+
+        manifest = self.manifest()
+        active_cats = self._flatten_categories(categories)
+
+        for plugin_name, plugin_dir in plugin_dirs.items():
+            tree_files = expand_trees_from_repo(plugin_dir, self.trees, active_cats)
+            for path, info in tree_files.items():
+                if info['plugin'] != plugin_name:
+                    continue
+                for category in self._expand_category_names(info['categories']):
+                    manifest.setdefault(plugin_name, []).append(
+                        os.path.join(category, path)
+                    )
+
+        for category in active_cats:
+            for entry in read_manifest(dotsync_repo, category):
+                manifest.setdefault('plain', []).append(entry['canonical_repo_path'])
+
+        return manifest
 
     # generates a list of all the filenames in each plugin for later use when
     # cleaning the repo

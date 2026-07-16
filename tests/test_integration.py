@@ -1,4 +1,6 @@
 import os
+import shutil
+
 from dotsync.__main__ import main
 
 # meant to test basic usage patterns
@@ -110,3 +112,73 @@ class TestIntegration:
             fp = home / p
             assert fp.exists(), f'{p} should exist after restore'
             assert not fp.is_symlink(), f'{p} should be a regular file'
+
+    def test_tree_save_restore_roundtrip(self, tmp_path, monkeypatch):
+        """@tree entry: save mirrors files; restore on clean home matches bytes."""
+        home, repo = self.setup_repo(tmp_path, '@tree:.config/myapp:editor\n')
+        app = home / '.config' / 'myapp'
+        app.mkdir(parents=True)
+        (app / 'settings.json').write_text('{"key": "value"}')
+
+        monkeypatch.setattr('builtins.input', lambda p=None: 'y')
+        assert main(
+            args=['save', 'editor', '--no-push', '--non-interactive'],
+            cwd=str(repo),
+            home=str(home),
+        ) == 0
+
+        mirrored = repo / 'dotfiles' / 'plain' / 'editor' / '.config' / 'myapp' / 'settings.json'
+        assert mirrored.exists()
+        assert mirrored.read_text() == '{"key": "value"}'
+
+        shutil.rmtree(home)
+        os.makedirs(home)
+
+        assert main(
+            args=['restore', 'editor', '--non-interactive', '--skip-pull', '--conflict', 'overwrite'],
+            cwd=str(repo),
+            home=str(home),
+        ) == 0
+
+        restored = home / '.config' / 'myapp' / 'settings.json'
+        assert restored.exists()
+        assert not restored.is_symlink()
+        assert restored.read_text() == '{"key": "value"}'
+
+    def test_save_prunes_stale_repo_files_with_confirmation(self, tmp_path, monkeypatch):
+        """Removing a file from a watched tree prunes stale repo mirror after confirm."""
+        home, repo = self.setup_repo(tmp_path, '@tree:.config/myapp:editor\n')
+        app = home / '.config' / 'myapp'
+        app.mkdir(parents=True)
+        (app / 'old.txt').write_text('old')
+        (app / 'keep.txt').write_text('keep')
+
+        monkeypatch.setattr('builtins.input', lambda p=None: 'y')
+        assert main(
+            args=['save', 'editor', '--no-push', '--non-interactive'],
+            cwd=str(repo),
+            home=str(home),
+        ) == 0
+
+        assert main(
+            args=['restore', 'editor', '--non-interactive', '--skip-pull', '--conflict', 'overwrite'],
+            cwd=str(repo),
+            home=str(home),
+        ) == 0
+
+        stale = repo / 'dotfiles' / 'plain' / 'editor' / '.config' / 'myapp' / 'old.txt'
+        assert stale.exists()
+        assert (app / 'old.txt').exists()
+
+        os.remove(app / 'old.txt')
+        (app / 'new.txt').write_text('new')
+
+        assert main(
+            args=['save', 'editor', '--no-push'],
+            cwd=str(repo),
+            home=str(home),
+        ) == 0
+
+        assert not stale.exists()
+        assert (repo / 'dotfiles' / 'plain' / 'editor' / '.config' / 'myapp' / 'new.txt').exists()
+        assert (repo / 'dotfiles' / 'plain' / 'editor' / '.config' / 'myapp' / 'keep.txt').exists()

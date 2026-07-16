@@ -20,6 +20,7 @@ from dotsync.checks import safety_checks
 from dotsync.flists import Filelist
 from dotsync.git import Git, GitPullError
 from dotsync.calc_ops import CalcOps, RestoreAborted
+from dotsync.tree import materialize_symlinks, pattern_walk_root, restore_symlinks
 from dotsync.plugins.plain import PlainPlugin
 from dotsync.plugins.encrypt import EncryptPlugin
 import dotsync.info as info
@@ -529,10 +530,16 @@ def add_to_filelist(flist_fname, filepath, category, home, dry_run, verbose_leve
                 plugin_name = 'encrypt' if encrypt else 'plain'
                 new_only = {p: {'categories': [category], 'plugin': plugin_name} for p, _ in new_entries}
                 manifest = {plugin_name: [os.path.join(category, p) for p, _ in new_entries]}
+                filelist_obj = Filelist(flist_fname)
                 from dotsync.args import Arguments
-                args = Arguments(['update', category])
-                update_files(repo, new_only, manifest, plugins, plugin_dirs, home, args)
-                restore_files(repo, new_only, manifest, plugins, plugin_dirs, home, args)
+                args = Arguments(['update', category, '--non-interactive'])
+                update_files(
+                    repo, filelist_obj, new_only, manifest, plugins, plugin_dirs, home, args,
+                )
+                restore_args = Arguments(['restore', category, '--non-interactive', '--skip-pull'])
+                restore_files(
+                    repo, filelist_obj, new_only, manifest, plugins, plugin_dirs, home, restore_args,
+                )
                 logging.info('Files synced and linked successfully')
             except Exception as e:
                 logging.error(f'Failed to auto-update: {e}')
@@ -692,7 +699,28 @@ def encrypt_to_filelist(flist_fname, filepath, home, dry_run):
     return 0
 
 
-def unmanage_from_filelist(flist_fname, filepath, home, repo, plugins, plugin_dirs, dry_run, policy=None):
+def purge_repo_paths(repo, plugin_dirs, paths_by_plugin, dotsync_repo=None):
+    """Delete mirrored paths from the repository."""
+    if dotsync_repo is None:
+        dotsync_repo = repo
+
+    for plugin_name, paths in paths_by_plugin.items():
+        plugin_dir = plugin_dirs[plugin_name]
+        for rel_path in paths:
+            if rel_path.startswith('.dotsync/'):
+                full = os.path.join(dotsync_repo, rel_path)
+            else:
+                full = os.path.join(plugin_dir, rel_path)
+            if os.path.isfile(full):
+                os.remove(full)
+                logging.info(f'Removed repository file: {full}')
+            elif os.path.isdir(full):
+                import shutil
+                shutil.rmtree(full)
+                logging.info(f'Removed repository directory: {full}')
+
+
+def unmanage_from_filelist(flist_fname, filepath, home, repo, plugins, plugin_dirs, dry_run, policy=None, purge_repo=False):
     """Restore a configuration file to home directory and stop managing it"""
     normalized_path = normalize_filepath(filepath, home)
     if normalized_path is None:
@@ -703,6 +731,17 @@ def unmanage_from_filelist(flist_fname, filepath, home, repo, plugins, plugin_di
     filelist = load_filelist(flist_fname)
     if filelist is None:
         return 1
+
+    tree = filelist.find_tree_for_path(normalized_path)
+    if tree is not None:
+        pattern = tree['pattern']
+        walk_root = pattern_walk_root(pattern) or pattern
+        norm = normalized_path.rstrip('/')
+        if norm == pattern.rstrip('/') or norm == walk_root.rstrip('/'):
+            return _unmanage_tree(
+                flist_fname, tree, home, repo, plugins, plugin_dirs,
+                dry_run, policy, purge_repo,
+            )
 
     dir_base = normalized_path.rstrip('/')
     home_dir = os.path.join(home, dir_base)
@@ -727,7 +766,10 @@ def unmanage_from_filelist(flist_fname, filepath, home, repo, plugins, plugin_di
     keep_going = getattr(policy, 'keep_going', False) if policy else False
     failed = []
     for normalized_path in targets:
-        if _unmanage_one(flist_fname, normalized_path, home, repo, filelist, plugins, plugin_dirs, policy) != 0:
+        if _unmanage_one(
+            flist_fname, normalized_path, home, repo, filelist, plugins, plugin_dirs,
+            policy, purge_repo=purge_repo,
+        ) != 0:
             if not keep_going:
                 return 1
             failed.append(normalized_path)
@@ -738,7 +780,62 @@ def unmanage_from_filelist(flist_fname, filepath, home, repo, plugins, plugin_di
     return 0
 
 
-def _unmanage_one(flist_fname, normalized_path, home, repo, filelist, plugins, plugin_dirs, policy=None):
+def _unmanage_tree(flist_fname, tree, home, repo, plugins, plugin_dirs, dry_run, policy, purge_repo):
+    """Remove a @tree entry from the filelist and optionally purge mirrored paths."""
+    pattern = tree['pattern']
+    if dry_run:
+        logging.info(f'[DRY RUN] Would untrack tree {pattern}')
+        if purge_repo:
+            logging.info(f'[DRY RUN] Would purge mirrored tree paths for {pattern}')
+        return 0
+
+    existing_lines = read_filelist_lines(flist_fname)
+    new_lines = []
+    removed = False
+    tree_prefix = f'@tree:{pattern}'
+    for line in existing_lines:
+        stripped = line.strip()
+        if stripped.startswith(tree_prefix):
+            removed = True
+            continue
+        new_lines.append(line)
+
+    if not removed:
+        logging.error(f'Tree {pattern} is not managed by dotsync')
+        return 1
+
+    with open(flist_fname, 'w') as f:
+        f.writelines(new_lines)
+    logging.info(f'Removed tree {pattern} from filelist')
+
+    if purge_repo:
+        plugin_name = tree['plugin']
+        plugin_dir = plugin_dirs[plugin_name]
+        master = min(tree['categories'])
+        from dotsync.manifest import manifest_path, read_manifest
+
+        paths = []
+        tree_root = os.path.join(plugin_dir, master, pattern_walk_root(pattern) or pattern)
+        if os.path.isdir(tree_root):
+            for root, dirs, files in os.walk(tree_root):
+                for fname in files:
+                    rel = os.path.relpath(os.path.join(root, fname), plugin_dir)
+                    paths.append(rel)
+
+        for entry in read_manifest(repo, master):
+            paths.append(entry['canonical_repo_path'])
+
+        purge_repo_paths(repo, plugin_dirs, {plugin_name: paths}, dotsync_repo=repo)
+
+        manifest_file = manifest_path(repo, master)
+        if os.path.exists(manifest_file):
+            os.remove(manifest_file)
+            logging.info(f'Removed sidecar manifest: {manifest_file}')
+
+    return 0
+
+
+def _unmanage_one(flist_fname, normalized_path, home, repo, filelist, plugins, plugin_dirs, policy=None, purge_repo=False):
     """Unmanage a single file. filelist is the loaded object (may be stale after first call)."""
     if normalized_path not in filelist.files:
         logging.error(f'File {normalized_path} is not managed by dotsync')
@@ -817,7 +914,7 @@ def _unmanage_one(flist_fname, normalized_path, home, repo, filelist, plugins, p
         f.writelines(new_lines)
     logging.info(f'Removed {normalized_path} from filelist')
 
-    if os.path.exists(repo_file):
+    if purge_repo and os.path.exists(repo_file):
         try:
             os.remove(repo_file)
             logging.info(f'Removed repository file: {repo_file}')
@@ -952,14 +1049,88 @@ def show_categories(flist_fname):
     return 0
 
 
-def update_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
+def confirm_prune(stale_paths, policy):
+    """Ask before deleting repo mirror paths no longer in the manifest."""
+    if not stale_paths:
+        return True
+    if policy and policy.non_interactive:
+        return True
+
+    print('The following repository files are no longer in the manifest:')
+    for path in sorted(stale_paths):
+        print(f'  {path}')
+    ans = input('Remove these files from the repository? [yN] ')
+    return ans.lower() in ('y', 'yes')
+
+
+def materialize_tree_symlinks(filelist_obj, home, repo, plugin_dirs, categories):
+    """Materialize symlinks for active @tree entries; return canonical repo paths."""
+    symlink_canonicals = {}
+    active_cats = filelist_obj._flatten_categories(categories)
+
+    for tree in filelist_obj.trees:
+        if not set(active_cats) & set(tree['categories']):
+            continue
+
+        plugin_name = tree['plugin']
+        plugin_dir = plugin_dirs[plugin_name]
+        watched = filelist_obj.expand_trees(home, categories)
+        watched = {
+            path: info for path, info in watched.items()
+            if set(info['categories']) & set(tree['categories'])
+        }
+        if not watched:
+            continue
+
+        master = min(tree['categories'])
+        entries = materialize_symlinks(
+            home,
+            plugin_dir,
+            watched,
+            master,
+            tree['pattern'],
+            dotsync_repo=repo,
+        )
+        if entries:
+            paths = [e['canonical_repo_path'] for e in entries]
+            symlink_canonicals.setdefault(plugin_name, []).extend(paths)
+
+    return symlink_canonicals
+
+
+def prepare_active_filelist(filelist_obj, home, categories, plugin_dirs=None, from_repo=False):
+    """Merge atomic and tree entries for save/update/restore."""
+    return filelist_obj.merge_active(
+        home,
+        categories,
+        plugin_dir=plugin_dirs.get('plain') if plugin_dirs else None,
+        from_repo=from_repo,
+    )
+
+
+def plugin_filelist(active_filelist, plugin):
+    """Build calc_ops file dict for a single plugin."""
+    return {
+        path: active_filelist[path]
+        for path in active_filelist
+        if active_filelist[path]['plugin'] == plugin
+    }
+
+
+def update_files(repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs, home, args):
     """Update files from home to repository"""
     clean_ops = []
     policy = from_args(args)
 
+    symlink_canonicals = materialize_tree_symlinks(
+        filelist_obj, home, repo, plugin_dirs, args.categories
+    )
+    manifest = filelist_obj.build_save_manifest(
+        home, args.categories, symlink_canonicals=symlink_canonicals
+    )
+
     for plugin in plugins:
-        flist = {path: filelist[path]['categories'] for path in filelist if
-                 filelist[path]['plugin'] == plugin}
+        flist = plugin_filelist(active_filelist, plugin)
         if not flist:
             continue
         logging.debug(f'active filelist for plugin {plugin}: {flist}')
@@ -975,6 +1146,12 @@ def update_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
             return 1
         except Exception as e:
             logging.error(str(e))
+            return 1
+
+        allowed = set(manifest.get(plugin, []))
+        stale = calc_ops.find_stale_repo_files(allowed)
+        if stale and not confirm_prune(stale, policy):
+            logging.info('Prune cancelled')
             return 1
 
         clean_ops.append(calc_ops.clean_repo(manifest[plugin]))
@@ -1010,7 +1187,7 @@ def ensure_repo_current(git, policy):
     return sha
 
 
-def restore_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
+def restore_files(repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs, home, args):
     """Restore files from repository to home"""
     clean_ops = []
     policy = from_args(args)
@@ -1019,9 +1196,10 @@ def restore_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
     if ensure_repo_current(git, policy) is None:
         return 1
 
+    active_cats = filelist_obj._flatten_categories(args.categories)
+
     for plugin in plugins:
-        flist = {path: filelist[path]['categories'] for path in filelist if
-                 filelist[path]['plugin'] == plugin}
+        flist = plugin_filelist(active_filelist, plugin)
         if not flist:
             continue
         logging.debug(f'active filelist for plugin {plugin}: {flist}')
@@ -1031,6 +1209,15 @@ def restore_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
 
         try:
             calc_ops.restore(flist).apply(args.dry_run, keep_going=policy.keep_going)
+            restore_symlinks(
+                home,
+                plugin_dir,
+                repo,
+                active_cats,
+                plugins[plugin],
+                policy,
+                dry_run=args.dry_run,
+            )
         except RestoreAborted as e:
             logging.error(str(e))
             return 1
@@ -1042,8 +1229,8 @@ def restore_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
             logging.error(str(e))
             return 1
 
-        clean_ops.append(calc_ops.clean_repo(manifest[plugin]))
-        plugins[plugin].clean_data(manifest[plugin])
+        clean_ops.append(calc_ops.clean_repo(manifest.get(plugin, [])))
+        plugins[plugin].clean_data(manifest.get(plugin, []))
 
     for clean_op in clean_ops:
         try:
@@ -1056,14 +1243,13 @@ def restore_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
     return 0
 
 
-def clean_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
+def clean_files(repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs, home, args):
     """Clean files from repository that are no longer managed"""
     clean_ops = []
     policy = from_args(args)
 
     for plugin in plugins:
-        flist = {path: filelist[path]['categories'] for path in filelist if
-                 filelist[path]['plugin'] == plugin}
+        flist = plugin_filelist(active_filelist, plugin)
         if not flist:
             continue
         logging.debug(f'active filelist for plugin {plugin}: {flist}')
@@ -1081,8 +1267,8 @@ def clean_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
             logging.error(str(e))
             return 1
 
-        clean_ops.append(calc_ops.clean_repo(manifest[plugin]))
-        plugins[plugin].clean_data(manifest[plugin])
+        clean_ops.append(calc_ops.clean_repo(manifest.get(plugin, [])))
+        plugins[plugin].clean_data(manifest.get(plugin, []))
 
     for clean_op in clean_ops:
         try:
@@ -1136,9 +1322,11 @@ def push_with_remote(git, no_push=False):
     return 0
 
 
-def save_files(repo, filelist, manifest, plugins, plugin_dirs, home, args, git):
+def save_files(repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs, home, args, git):
     """Mirror home to repo, commit, and push by default."""
-    result = update_files(repo, filelist, manifest, plugins, plugin_dirs, home, args)
+    result = update_files(
+        repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs, home, args
+    )
     if result != 0:
         return result
 
@@ -1377,8 +1565,11 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
             logging.error('untrack action requires filepath argument')
             return 1
         if args.purge_repo:
-            logging.warning('--purge-repo is not yet implemented; removing from filelist only')
-        return unmanage_from_filelist(flist_fname, args.add_filepath, home, repo, plugins, plugin_dirs, args.dry_run, policy=from_args(args))
+            logging.info('Purging mirrored files from repository')
+        return unmanage_from_filelist(
+            flist_fname, args.add_filepath, home, repo, plugins, plugin_dirs,
+            args.dry_run, policy=from_args(args), purge_repo=args.purge_repo,
+        )
 
     # check for list
     if args.action == Actions.LIST:
@@ -1389,15 +1580,23 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
         return show_categories(flist_fname)
 
     # Load filelist for other operations
-    filelist = load_filelist(flist_fname)
-    if filelist is None:
+    filelist_obj = load_filelist(flist_fname)
+    if filelist_obj is None:
         return 1
-    
-    # generate manifest for later cleaning
-    manifest = filelist.manifest()
-    # activate categories on filelist
+
     try:
-        filelist = filelist.activate(args.categories)
+        if args.action == Actions.RESTORE:
+            active_filelist = prepare_active_filelist(
+                filelist_obj, home, args.categories, plugin_dirs, from_repo=True,
+            )
+            manifest = filelist_obj.build_restore_manifest(
+                plugin_dirs, args.categories, repo,
+            )
+        else:
+            active_filelist = prepare_active_filelist(
+                filelist_obj, home, args.categories, plugin_dirs, from_repo=False,
+            )
+            manifest = filelist_obj.manifest()
     except RuntimeError:
         logging.error(f'Error activating categories: {args.categories}')
         return 1
@@ -1407,15 +1606,23 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
 
     # Route to appropriate command function
     if args.action == Actions.UPDATE:
-        return update_files(repo, filelist, manifest, plugins, plugin_dirs, home, args)
+        return update_files(
+            repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs, home, args,
+        )
     elif args.action == Actions.SAVE:
-        return save_files(repo, filelist, manifest, plugins, plugin_dirs, home, args, git)
+        return save_files(
+            repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs, home, args, git,
+        )
     elif args.action == Actions.RESTORE:
-        return restore_files(repo, filelist, manifest, plugins, plugin_dirs, home, args)
+        return restore_files(
+            repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs, home, args,
+        )
     elif args.action == Actions.CLEAN:
-        return clean_files(repo, filelist, manifest, plugins, plugin_dirs, home, args)
+        return clean_files(
+            repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs, home, args,
+        )
     elif args.action == Actions.DIFF:
-        return show_diff(repo, filelist, plugins, plugin_dirs, home, git, args)
+        return show_diff(repo, active_filelist, plugins, plugin_dirs, home, git, args)
     elif args.action == Actions.COMMIT:
         return commit_changes(repo, git)
     elif args.action == Actions.PASSWD:

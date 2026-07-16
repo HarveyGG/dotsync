@@ -500,8 +500,8 @@ class TestMain:
         repo_file = repo / 'dotfiles' / 'plain' / 'test' / '.testfile'
         assert repo_file.exists()
         
-        # Unmanage
-        assert main(args=['unmanage', '.testfile'], cwd=str(repo), home=str(home)) == 0
+        # Unmanage with purge to remove repo mirror
+        assert main(args=['unmanage', '--purge-repo', '.testfile'], cwd=str(repo), home=str(home)) == 0
         
         # File should be restored as a regular file (not symlink)
         # Note: In some test environments file may not exist if repo file was deleted before restore
@@ -729,18 +729,21 @@ class TestMain:
         assert 'untrack' in caplog.text.lower()
         assert '.testfile' not in (repo / 'filelist').read_text()
 
-    def test_untrack_purge_repo_stub(self, tmp_path, caplog):
-        """--purge-repo is accepted but not yet implemented"""
+    def test_untrack_purge_repo(self, tmp_path, caplog):
+        """--purge-repo deletes mirrored files from the repository"""
         home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
         (home / '.testfile').write_text('test content')
 
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
         assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
+        repo_file = repo / 'dotfiles' / 'plain' / 'test' / '.testfile'
+        assert repo_file.exists()
 
         assert main(args=['untrack', '--purge-repo', '.testfile'],
                     cwd=str(repo), home=str(home)) == 0
-        assert 'not yet implemented' in caplog.text.lower()
+        assert 'not yet implemented' not in caplog.text.lower()
         assert '.testfile' not in (repo / 'filelist').read_text()
+        assert not repo_file.exists()
 
     def test_add_directory_auto_update_only_new_entries(self, tmp_path, monkeypatch, caplog):
         """add dir: auto-update only affects newly added files, not existing category entries"""

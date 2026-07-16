@@ -6,7 +6,7 @@ import shutil
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
-from dotsync.manifest import MATERIALIZED_DIR, write_manifest
+from dotsync.manifest import MATERIALIZED_DIR, read_manifest, write_manifest
 
 DIR_SKIP = {'extensions', 'worktrees', 'Cache', 'CachedData', '.git', 'node_modules', 'logs'}
 
@@ -122,10 +122,13 @@ def materialize_symlinks(
     category: str,
     tree_pattern: str,
     warnings: Optional[List[str]] = None,
+    dotsync_repo: Optional[str] = None,
 ) -> List[dict]:
     """Materialize symlink targets into the repo and write the sidecar manifest."""
     if warnings is None:
         warnings = []
+    if dotsync_repo is None:
+        dotsync_repo = repo
 
     entries = []
     copied: Set[str] = set()
@@ -162,8 +165,156 @@ def materialize_symlinks(
             'canonical_repo_path': canonical,
         })
 
-    write_manifest(repo, category, entries)
+    write_manifest(dotsync_repo, category, entries)
     return entries
+
+
+def expand_trees_from_repo(plugin_dir: str, trees: List[dict], categories) -> Dict[str, dict]:
+    """Build active tree file entries from repo mirror paths (for restore)."""
+    files = {}
+    for tree in trees:
+        if not set(categories) & set(tree['categories']):
+            continue
+
+        master = min(tree['categories'])
+        pattern = tree['pattern']
+        walk_root = pattern_walk_root(pattern)
+        category_root = os.path.join(plugin_dir, master, walk_root)
+
+        if not os.path.exists(category_root):
+            continue
+
+        has_glob = pattern_has_glob(pattern)
+
+        if os.path.isfile(category_root) or os.path.islink(category_root):
+            rel = os.path.relpath(category_root, os.path.join(plugin_dir, master))
+            if not rel.startswith('.'):
+                rel = '.' + rel
+            if has_glob and not fnmatch.fnmatch(rel, pattern):
+                continue
+            if not has_glob and rel != pattern:
+                continue
+            files[rel] = {
+                'categories': tree['categories'],
+                'plugin': tree['plugin'],
+                'kind': 'file',
+            }
+            continue
+
+        for root, dirs, fnames in os.walk(category_root):
+            dirs[:] = [d for d in dirs if d not in DIR_SKIP]
+            for fname in fnames:
+                if fname in SYSTEM_FILES:
+                    continue
+                abs_f = os.path.join(root, fname)
+                rel = os.path.relpath(abs_f, os.path.join(plugin_dir, master))
+                if not rel.startswith('.'):
+                    rel = '.' + rel
+
+                if has_glob:
+                    if not fnmatch.fnmatch(rel, pattern):
+                        continue
+                elif rel != pattern and not rel.startswith(pattern + '/'):
+                    continue
+
+                if rel in files:
+                    continue
+                files[rel] = {
+                    'categories': tree['categories'],
+                    'plugin': tree['plugin'],
+                    'kind': 'file',
+                }
+
+    return files
+
+
+def restore_symlinks(
+    home: str,
+    plugin_dir: str,
+    dotsync_repo: str,
+    categories: List[str],
+    plugin,
+    policy,
+    dry_run: bool = False,
+):
+    """Restore symlink layout from sidecar manifests."""
+    from dotsync.calc_ops import RestoreAborted
+    from dotsync.interaction import prompt_restore_overwrite_or_cancel, show_restore_diff
+
+    for category in categories:
+        entries = read_manifest(dotsync_repo, category)
+        for entry in entries:
+            home_path = entry['home_path']
+            target = entry['target']
+            canonical = entry['canonical_repo_path']
+            if canonical.startswith('.dotsync/'):
+                source = os.path.join(dotsync_repo, canonical)
+            else:
+                source = os.path.join(plugin_dir, canonical)
+            dest = os.path.join(home, home_path)
+
+            if not os.path.exists(source):
+                logging.warning(f'symlink source missing in repo: {source}, skipping')
+                continue
+
+            dest_dir = os.path.dirname(dest)
+            if dest_dir and not os.path.exists(dest_dir):
+                os.makedirs(dest_dir, exist_ok=True)
+
+            if os.path.isabs(target):
+                recreate_link = False
+            else:
+                target_abs = os.path.normpath(os.path.join(os.path.dirname(dest), target))
+                recreate_link = os.path.exists(target_abs)
+
+            if recreate_link:
+                if dry_run:
+                    logging.info(f'[DRY RUN] Would recreate symlink {dest} -> {target}')
+                    continue
+                if os.path.lexists(dest):
+                    if os.path.exists(dest) and not os.path.islink(dest):
+                        if policy and policy.non_interactive:
+                            if policy.conflict != 'overwrite':
+                                raise RestoreAborted(
+                                    f'Restore aborted: {dest} conflicts with repository'
+                                )
+                        else:
+                            show_restore_diff(source, dest)
+                            if not prompt_restore_overwrite_or_cancel(dest):
+                                raise RestoreAborted(f'Restore cancelled by user at {dest}')
+                    os.remove(dest)
+                os.symlink(target, dest)
+                logging.info(f'Recreated symlink {home_path} -> {target}')
+                continue
+
+            if dry_run:
+                logging.info(f'[DRY RUN] Would copy symlink content {source} -> {dest}')
+                continue
+
+            if os.path.lexists(dest):
+                try:
+                    if plugin.samefile(source, dest):
+                        continue
+                except Exception:
+                    pass
+                if policy and policy.non_interactive:
+                    if policy.conflict == 'overwrite':
+                        os.remove(dest)
+                    elif policy.conflict == 'keep':
+                        continue
+                    else:
+                        raise RestoreAborted(
+                            f'Restore aborted: {dest} conflicts with repository'
+                        )
+                else:
+                    show_restore_diff(source, dest)
+                    if prompt_restore_overwrite_or_cancel(dest):
+                        os.remove(dest)
+                    else:
+                        raise RestoreAborted(f'Restore cancelled by user at {dest}')
+
+            plugin.remove(source, dest)
+            logging.info(f'Restored symlink content to {home_path}')
 
 
 def walk_tree(home: str, pattern: str) -> Dict[str, dict]:

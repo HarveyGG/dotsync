@@ -21,11 +21,22 @@ class CalcOps:
         self.plugin = plugin
         self.policy = policy
 
+    @staticmethod
+    def _categories_for(path_entry):
+        if isinstance(path_entry, dict):
+            return path_entry['categories']
+        return path_entry
+
     def update(self, files):
         fops = FileOps(self.repo)
 
         for path in files:
-            categories = files[path]
+            entry = files[path]
+            if isinstance(entry, dict) and entry.get('kind') == 'symlink':
+                logging.debug(f'skipping tree symlink at {path}; handled by materialize')
+                continue
+
+            categories = self._categories_for(entry)
 
             master = min(categories)
             slaves = [c for c in categories if c != master]
@@ -132,7 +143,11 @@ class CalcOps:
         fops = FileOps(self.repo)
 
         for path in files:
-            categories = files[path]
+            entry = files[path]
+            if isinstance(entry, dict) and entry.get('kind') == 'symlink':
+                continue
+
+            categories = self._categories_for(entry)
             master = min(categories)
             source = os.path.join(self.repo, master, path)
 
@@ -189,7 +204,7 @@ class CalcOps:
         fops = FileOps(self.repo)
 
         for path in files:
-            categories = files[path]
+            categories = self._categories_for(files[path])
             master = min(categories)
             repo_path = os.path.join(self.repo, master, path)
 
@@ -262,6 +277,36 @@ class CalcOps:
                         fops.remove(fname)
 
         return fops
+
+    def find_stale_repo_files(self, filenames):
+        stale = []
+        if not os.path.isdir(self.repo):
+            return stale
+
+        SYSTEM_FILES = {'.DS_Store', 'Thumbs.db', '.DS_Store?'}
+
+        for category in os.listdir(self.repo):
+            if category in SYSTEM_FILES:
+                continue
+            category_path = os.path.join(self.repo, category)
+            if not os.path.isdir(category_path):
+                continue
+            try:
+                if not os.listdir(category_path):
+                    continue
+            except (OSError, NotADirectoryError):
+                continue
+
+            for root, dirs, files in os.walk(category_path):
+                dirs[:] = [d for d in dirs if d not in SYSTEM_FILES]
+                for fname in files:
+                    if fname in SYSTEM_FILES:
+                        continue
+                    rel = os.path.relpath(os.path.join(root, fname), self.repo)
+                    if rel not in filenames:
+                        stale.append(rel)
+
+        return stale
 
     # goes through the filelist and finds files that have modifications that
     # are not yet in the repo e.g. changes to encrypted files. This should not
