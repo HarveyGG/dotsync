@@ -4,7 +4,7 @@ import re
 from dataclasses import asdict
 
 import dotsync.info as info
-from dotsync.tree import TreeEntry
+from dotsync.tree import TreeEntry, walk_tree
 
 
 class Filelist:
@@ -89,6 +89,29 @@ class Filelist:
                         raise RuntimeError
                     else:
                         files[path] = group
+
+        return files
+
+    def expand_trees(self, home, categories):
+        categories = [self.groups.get(c, [c]) for c in categories]
+        categories = [c for cat in categories for c in cat]
+
+        files = {}
+        for tree in self.trees:
+            if not set(categories) & set(tree['categories']):
+                continue
+
+            for path, node in walk_tree(home, tree['pattern']).items():
+                if path in files:
+                    logging.error('multiple tree entries active for '
+                                  f'{path}: {files[path]["categories"]} '
+                                  f'and {tree["categories"]}')
+                    raise RuntimeError
+                files[path] = {
+                    'categories': tree['categories'],
+                    'plugin': tree['plugin'],
+                    'kind': node['kind'],
+                }
 
         return files
 

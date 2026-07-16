@@ -488,7 +488,7 @@ def add_to_filelist(flist_fname, filepath, category, home, dry_run, verbose_leve
             return 1
     
     if os.path.isdir(full_path):
-        DIR_SKIP = {'extensions', 'worktrees', 'Cache', 'CachedData', '.git', 'node_modules', 'logs'}
+        from dotsync.tree import DIR_SKIP
         paths_to_add = []
         for root, dirs, files in os.walk(full_path):
             dirs[:] = [d for d in dirs if d not in DIR_SKIP]
