@@ -5,6 +5,10 @@ import logging
 import enum
 
 
+class GitPullError(Exception):
+    pass
+
+
 class FileState(enum.Enum):
     MODIFIED = 'M'
     ADDED = 'A'
@@ -138,6 +142,21 @@ class Git:
 
     def has_remote(self):
         return bool(self.run('git remote').strip())
+
+    def head_sha(self):
+        return self.run('git rev-parse HEAD').strip()
+
+    def fetch(self):
+        self.run('git fetch')
+
+    def pull_ff_only(self):
+        try:
+            self.fetch()
+            self.run('git pull --ff-only')
+        except subprocess.CalledProcessError as e:
+            output = getattr(e, 'output', None) or getattr(e, 'stdout', b'') or b''
+            raise GitPullError(output.decode().strip()) from e
+        return self.head_sha()
 
     def push(self):
         self.run('git push')

@@ -1,9 +1,10 @@
 import os
+import shlex
 import subprocess
 
 import pytest
 
-from dotsync.git import Git, FileState
+from dotsync.git import Git, FileState, GitPullError
 
 class TestGit:
     def touch(self, folder, fname):
@@ -153,3 +154,60 @@ class TestGit:
     def test_diff_no_changes(self, tmp_path):
         git, repo = self.setup_git(tmp_path)
         assert git.diff() == ['no changes']
+
+    def test_head_sha(self, tmp_path):
+        git, repo = self.setup_git(tmp_path)
+        self.touch(repo, 'file')
+        git.add('file')
+        git.commit('init')
+        expected = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'], cwd=repo,
+            stdout=subprocess.PIPE,
+        ).stdout.decode().strip()
+        assert git.head_sha() == expected
+
+    def test_has_remote_false(self, tmp_path):
+        git, _ = self.setup_git(tmp_path)
+        assert not git.has_remote()
+
+    def test_has_remote_true(self, tmp_path):
+        git, repo = self.setup_git(tmp_path)
+        subprocess.run(['git', 'remote', 'add', 'origin', repo], cwd=repo, check=True)
+        assert git.has_remote()
+
+    def test_pull_ff_only_success(self, tmp_path, monkeypatch):
+        git, _ = self.setup_git(tmp_path)
+        expected_sha = 'deadbeef' * 5
+        calls = []
+
+        def mock_run(cmd):
+            cmd_list = cmd if isinstance(cmd, list) else shlex.split(cmd)
+            calls.append(cmd_list)
+            if cmd_list[:2] == ['git', 'fetch']:
+                return ''
+            if cmd_list[:2] == ['git', 'pull'] and '--ff-only' in cmd_list:
+                return 'Already up to date.\n'
+            if cmd_list == ['git', 'rev-parse', 'HEAD']:
+                return expected_sha + '\n'
+            raise AssertionError(f'unexpected git command: {cmd_list}')
+
+        monkeypatch.setattr(git, 'run', mock_run)
+        assert git.pull_ff_only() == expected_sha
+        assert [c[:2] for c in calls] == [['git', 'fetch'], ['git', 'pull'], ['git', 'rev-parse']]
+
+    def test_pull_ff_only_failure_raises(self, tmp_path, monkeypatch):
+        git, _ = self.setup_git(tmp_path)
+
+        def mock_run(cmd):
+            cmd_list = cmd if isinstance(cmd, list) else shlex.split(cmd)
+            if cmd_list[:2] == ['git', 'fetch']:
+                return ''
+            if cmd_list[:2] == ['git', 'pull']:
+                raise subprocess.CalledProcessError(
+                    1, cmd, output=b'fatal: Not possible to fast-forward',
+                )
+            raise AssertionError(f'unexpected git command: {cmd_list}')
+
+        monkeypatch.setattr(git, 'run', mock_run)
+        with pytest.raises(GitPullError):
+            git.pull_ff_only()
