@@ -1,11 +1,18 @@
 import fnmatch
+import hashlib
+import logging
 import os
+import shutil
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional, Set, Tuple
+
+from dotsync.manifest import MATERIALIZED_DIR, write_manifest
 
 DIR_SKIP = {'extensions', 'worktrees', 'Cache', 'CachedData', '.git', 'node_modules', 'logs'}
 
 SYSTEM_FILES = {'.DS_Store', 'Thumbs.db', '.DS_Store?'}
+
+SYMLINK_MAX_DEPTH = 40
 
 
 @dataclass
@@ -32,6 +39,131 @@ def normalize_home_rel(home: str, abs_path: str) -> str:
     if not rel.startswith('.'):
         rel = '.' + rel
     return rel
+
+
+def is_internal_target(home_rel: str, tree_pattern: str) -> bool:
+    walk_root = pattern_walk_root(tree_pattern)
+    if not walk_root:
+        return fnmatch.fnmatch(home_rel, tree_pattern)
+    if not (home_rel == walk_root or home_rel.startswith(walk_root + '/')):
+        return False
+    if pattern_has_glob(tree_pattern):
+        return fnmatch.fnmatch(home_rel, tree_pattern)
+    return True
+
+
+def resolve_symlink_chain(home: str, rel_path: str) -> Tuple[Optional[str], Optional[str]]:
+    """Follow symlinks from a home-relative path.
+
+    Returns (resolved_abs, resolved_home_rel) or (None, None) if broken or cyclic.
+    """
+    visited: Set[str] = set()
+    current_abs = os.path.join(home, rel_path)
+    depth = 0
+
+    while os.path.islink(current_abs):
+        if current_abs in visited or depth >= SYMLINK_MAX_DEPTH:
+            return None, None
+        visited.add(current_abs)
+        link_target = os.readlink(current_abs)
+        if os.path.isabs(link_target):
+            current_abs = link_target
+        else:
+            current_abs = os.path.normpath(
+                os.path.join(os.path.dirname(current_abs), link_target)
+            )
+        depth += 1
+
+    if not os.path.exists(current_abs):
+        return None, None
+
+    return current_abs, normalize_home_rel(home, current_abs)
+
+
+def mirror_repo_path(category: str, home_rel: str) -> str:
+    return os.path.join(category, home_rel)
+
+
+def external_materialized_path(home_rel: str, basename: str) -> str:
+    material_id = hashlib.sha256(home_rel.encode()).hexdigest()[:16]
+    return os.path.join(MATERIALIZED_DIR, material_id, basename)
+
+
+def _copy_content_to_repo(abs_source: str, dest: str) -> None:
+    if os.path.isfile(abs_source):
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copy2(abs_source, dest)
+    elif os.path.isdir(abs_source):
+        if os.path.exists(dest):
+            shutil.rmtree(dest)
+        shutil.copytree(abs_source, dest)
+
+
+def _canonical_repo_path(
+    home_rel: str,
+    resolved_rel: str,
+    resolved_abs: str,
+    category: str,
+    tree_pattern: str,
+    watched_paths: Dict[str, dict],
+) -> str:
+    if resolved_rel in watched_paths and watched_paths[resolved_rel].get('kind') != 'symlink':
+        return mirror_repo_path(category, resolved_rel)
+    if is_internal_target(resolved_rel, tree_pattern):
+        return mirror_repo_path(category, resolved_rel)
+    basename = os.path.basename(resolved_abs) or 'content'
+    return external_materialized_path(home_rel, basename)
+
+
+def materialize_symlinks(
+    home: str,
+    repo: str,
+    watched_paths: Dict[str, dict],
+    category: str,
+    tree_pattern: str,
+    warnings: Optional[List[str]] = None,
+) -> List[dict]:
+    """Materialize symlink targets into the repo and write the sidecar manifest."""
+    if warnings is None:
+        warnings = []
+
+    entries = []
+    copied: Set[str] = set()
+
+    for home_rel in sorted(watched_paths):
+        info = watched_paths[home_rel]
+        if info.get('kind') != 'symlink':
+            continue
+
+        abs_link = os.path.join(home, home_rel)
+        if not os.path.islink(abs_link):
+            continue
+
+        target_str = os.readlink(abs_link)
+        resolved_abs, resolved_rel = resolve_symlink_chain(home, home_rel)
+        if resolved_abs is None:
+            msg = f'broken symlink at {home_rel} -> {target_str}, skipping'
+            logging.warning(msg)
+            warnings.append(msg)
+            continue
+
+        canonical = _canonical_repo_path(
+            home_rel, resolved_rel, resolved_abs, category, tree_pattern, watched_paths
+        )
+        if canonical not in copied:
+            dest = os.path.join(repo, canonical)
+            _copy_content_to_repo(resolved_abs, dest)
+            copied.add(canonical)
+
+        entries.append({
+            'home_path': home_rel,
+            'kind': 'symlink',
+            'target': target_str,
+            'canonical_repo_path': canonical,
+        })
+
+    write_manifest(repo, category, entries)
+    return entries
 
 
 def walk_tree(home: str, pattern: str) -> Dict[str, dict]:
