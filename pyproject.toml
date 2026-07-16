@@ -52,6 +52,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "blackbox: end-to-end CLI subprocess tests in isolated sandbox (tests/blackbox/)",
+]
 addopts = [
     "-v",
     "--strict-markers",
