@@ -10,6 +10,7 @@ class Actions(enum.Enum):
     ENCRYPT = 'encrypt'    # Convert existing plain config to encrypted
     UNMANAGE = 'unmanage'  # Deprecated alias for untrack
     LIST = 'list'          # List all managed configuration files
+    CATEGORIES = 'categories'  # Show category groups and definitions
     UPDATE = 'update'      # Sync config files from home to repository
     SAVE = 'save'          # Mirror home to repo, commit, and push
     RESTORE = 'restore'    # Restore config files from repository to home

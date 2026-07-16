@@ -906,6 +906,52 @@ def list_managed_files(flist_fname, categories, home):
     return 0
 
 
+def show_categories(flist_fname):
+    """Show category groups and unique categories from filelist"""
+    filelist = load_filelist(flist_fname)
+    if filelist is None:
+        return 1
+
+    group_lines = []
+    with open(flist_fname, 'r') as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            if '=' in stripped:
+                group_lines.append(stripped)
+
+    categories = set()
+    for instances in filelist.files.values():
+        for instance in instances:
+            categories.update(instance['categories'])
+    for group_cats in filelist.groups.values():
+        categories.update(group_cats)
+
+    print('Category groups:')
+    if group_lines:
+        for line in sorted(group_lines):
+            group_name = line.split('=', 1)[0]
+            marker = '  (current hostname)' if group_name == info.hostname else ''
+            print(f'  {line}{marker}')
+    else:
+        print('  (none)')
+
+    print()
+    print('Categories:')
+    if categories:
+        for cat in sorted(categories):
+            print(f'  {cat}')
+    else:
+        print('  (none)')
+
+    if info.hostname in filelist.groups:
+        print()
+        print(f'Current hostname "{info.hostname}" matches group "{info.hostname}"')
+
+    return 0
+
+
 def update_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
     """Update files from home to repository"""
     clean_ops = []
@@ -1337,6 +1383,10 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
     # check for list
     if args.action == Actions.LIST:
         return list_managed_files(flist_fname, args.categories, home)
+
+    # check for categories
+    if args.action == Actions.CATEGORIES:
+        return show_categories(flist_fname)
 
     # Load filelist for other operations
     filelist = load_filelist(flist_fname)
