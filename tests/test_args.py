@@ -76,3 +76,14 @@ class TestArguments:
         act = self.valid_actions[0]
         assert not Arguments([act]).skip_pull
         assert Arguments(['--skip-pull', act]).skip_pull
+
+    def test_no_push(self):
+        act = self.valid_actions[0]
+        assert not Arguments([act]).no_push
+        assert Arguments(['--no-push', act]).no_push
+
+    def test_commit_message(self):
+        act = self.valid_actions[0]
+        assert Arguments([act]).commit_message is None
+        assert Arguments(['-m', 'sync', act]).commit_message == 'sync'
+        assert Arguments(['--message', 'sync', act]).commit_message == 'sync'

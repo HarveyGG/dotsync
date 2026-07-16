@@ -9,6 +9,7 @@ class Actions(enum.Enum):
     UNMANAGE = 'unmanage'  # Restore file to home and stop managing it
     LIST = 'list'          # List all managed configuration files
     UPDATE = 'update'      # Sync config files from home to repository
+    SAVE = 'save'          # Mirror home to repo, commit, and push
     RESTORE = 'restore'    # Restore config files from repository to home
     DIFF = 'diff'          # Show differences between home and repository
     COMMIT = 'commit'      # Commit changes to git and optionally push

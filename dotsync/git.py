@@ -158,8 +158,17 @@ class Git:
             raise GitPullError(output.decode().strip()) from e
         return self.head_sha()
 
+    def add_remote(self, name, url):
+        self.run(['git', 'remote', 'add', name, url])
+
     def push(self):
-        self.run('git push')
+        branch = self.run('git rev-parse --abbrev-ref HEAD').strip()
+        try:
+            self.run('git rev-parse --abbrev-ref @{upstream}')
+        except subprocess.CalledProcessError:
+            self.run(['git', 'push', '-u', 'origin', branch])
+        else:
+            self.run('git push')
 
     def has_unpushed_commits(self):
         """Check if there are commits that haven't been pushed to remote"""

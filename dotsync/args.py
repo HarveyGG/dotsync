@@ -101,6 +101,11 @@ class Arguments:
                             help='skip auto-update after add (for large dirs)')
         parser.add_argument('--skip-pull', action='store_true',
                             help='skip git pull before restore (unsafe)')
+        parser.add_argument('--no-push', action='store_true',
+                            help='commit locally but do not push to remote')
+        parser.add_argument('-m', '--message', dest='commit_message',
+                            default=None,
+                            help='commit message for save command')
 
         # parse args
         args = parser.parse_args(args)
@@ -162,6 +167,8 @@ class Arguments:
         self.keep_going = getattr(args, 'keep_going', False)
         self.no_auto_update = getattr(args, 'no_auto_update', False)
         self.skip_pull = getattr(args, 'skip_pull', False)
+        self.no_push = getattr(args, 'no_push', False)
+        self.commit_message = getattr(args, 'commit_message', None)
         self.action = Actions(args.action)
         self.categories = args.category
 

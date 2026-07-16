@@ -1045,6 +1045,67 @@ def show_diff(repo, filelist, plugins, plugin_dirs, home, git, args):
     return 0
 
 
+def push_with_remote(git, no_push=False):
+    """Push to remote; prompt for URL if origin is missing. Returns exit code."""
+    if no_push:
+        logging.warning(
+            'Changes saved locally only (--no-push). '
+            'Assets are not durable until pushed to a remote.'
+        )
+        return 0
+
+    if not git.has_remote():
+        url = input('No remote configured. Enter Git remote URL (or leave empty to skip): ')
+        if not url.strip():
+            logging.error('Aborted: no remote configured and push declined')
+            return 1
+        git.add_remote('origin', url.strip())
+
+    try:
+        git.push()
+        logging.info('successfully pushed to git remote')
+    except Exception as e:
+        logging.error(f'Failed to push to remote: {e}')
+        return 1
+    return 0
+
+
+def save_files(repo, filelist, manifest, plugins, plugin_dirs, home, args, git):
+    """Mirror home to repo, commit, and push by default."""
+    result = update_files(repo, filelist, manifest, plugins, plugin_dirs, home, args)
+    if result != 0:
+        return result
+
+    if args.dry_run:
+        if args.no_push:
+            logging.info('[DRY RUN] Would git add, commit (no push)')
+        else:
+            logging.info('[DRY RUN] Would git add, commit, and push')
+        return 0
+
+    has_new_changes = git.has_changes()
+    if not has_new_changes:
+        logging.warning('no changes detected in repo, not creating commit')
+        return push_with_remote(git, no_push=args.no_push)
+
+    git.add()
+    msg = args.commit_message or git.gen_commit_message(ignore=['.plugins/'])
+
+    if not msg or msg.strip() == '':
+        logging.warning('no valid changes to commit after filtering')
+        git.reset()
+        return push_with_remote(git, no_push=args.no_push)
+
+    try:
+        git.commit(msg)
+    except Exception as e:
+        logging.error(f'Failed to commit: {e}')
+        git.reset()
+        return 1
+
+    return push_with_remote(git, no_push=args.no_push)
+
+
 def commit_changes(repo, git):
     """Commit changes to git repository"""
     has_new_changes = git.has_changes()
@@ -1259,6 +1320,8 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
     # Route to appropriate command function
     if args.action == Actions.UPDATE:
         return update_files(repo, filelist, manifest, plugins, plugin_dirs, home, args)
+    elif args.action == Actions.SAVE:
+        return save_files(repo, filelist, manifest, plugins, plugin_dirs, home, args, git)
     elif args.action == Actions.RESTORE:
         return restore_files(repo, filelist, manifest, plugins, plugin_dirs, home, args)
     elif args.action == Actions.CLEAN:
