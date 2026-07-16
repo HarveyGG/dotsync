@@ -16,4 +16,5 @@ environments). This is dotsync's official documentation.
    usage
    encryption
    cookbook
+   v2_migration
    migration_v1

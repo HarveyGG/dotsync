@@ -2,12 +2,12 @@
 
 <div align="center">
 
-![dotsync](https://img.shields.io/badge/dotsync-1.0.12-blue)
+![dotsync](https://img.shields.io/badge/dotsync-2.0.0-blue)
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-Non--Commercial-blue.svg)
 
-**A powerful and versatile dotfiles manager that makes managing your configuration files across multiple machines effortless.**
+**Mirror-only dotfiles manager — edit configs in `$HOME`, persist them to git, restore on new machines.**
 
 [Features](#-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Contributing](#-contributing)
 
@@ -17,14 +17,15 @@
 
 ## ✨ Features
 
-- **🎯 Easy Organization** - Categorize and organize your dotfiles with an intuitive filelist system
-- **🔄 Multi-Machine Support** - Share files between machines or keep separate versions in the same repo
-- **🔒 Encryption Support** - Encrypt sensitive dotfiles using GnuPG
-- **🔗 Flexible Linking** - Use symlinks or copy files (hard mode) based on your needs
-- **📦 Minimal Dependencies** - Only requires `uv` (auto-installed)
-- **🚀 Simple Commands** - Intuitive CLI with commands like `add`, `update`, `restore`, `encrypt`
-- **🧪 Well Tested** - Comprehensive test suite ensuring reliability
-- **📚 Great Documentation** - Full documentation available at [ReadTheDocs](https://dotsync.readthedocs.io)
+- **🏠 Home is source of truth** — edit dotfiles where tools expect them; the repo is a mirror
+- **🎯 Easy organization** — categorize files with an intuitive filelist system
+- **🔄 Multi-machine support** — share files between machines or keep separate versions in the same repo
+- **🌲 Dynamic trees** — `@tree` entries re-scan on every `save`; no manual `scan` step
+- **🔒 Encryption support** — encrypt sensitive dotfiles using GnuPG
+- **📦 Minimal dependencies** — only requires `uv` (auto-installed) and git
+- **🚀 Simple lifecycle** — `track` → `save` → `restore` on a new machine
+- **🧪 Well tested** — comprehensive test suite ensuring reliability
+- **📚 Great documentation** — full documentation at [ReadTheDocs](https://dotsync.readthedocs.io)
 
 ## 🚀 Installation
 
@@ -53,145 +54,134 @@ brew install dotsync
 pip install dotsync-cli
 ```
 
-
 ## 📖 Quick Start
 
-### 1. Initialize a dotfiles repository
+### Source machine (already has dotfiles)
 
 ```bash
-# Automatically creates ~/.dotfiles if it doesn't exist
-dotsync init
+# Start watching paths (creates ~/.dotfiles + git init on first use)
+dotsync track ~/.zshrc shell
+dotsync track ~/.config/nvim editor
 
-# Or specify a custom directory
-dotsync init ~/my-dotfiles
+# Mirror home → repo, commit, and push (prompts for remote if missing)
+dotsync save
 ```
 
-### 2. Add a configuration file
+Your files stay as **regular files in `$HOME`**. dotsync copies content into the repo and pushes to GitHub by default.
+
+### New machine
 
 ```bash
-# Add a file (automatically infers category from path)
-dotsync add ~/.zshrc
-
-# Add with specific category
-dotsync add ~/.vimrc vim
-
-# Add with encryption
-dotsync add --encrypt ~/.ssh/id_rsa ssh
-```
-
-### 3. Sync files to repository
-
-```bash
-dotsync update
-```
-
-This will:
-- Copy your files to the repository
-- Create symlinks in your home directory pointing to the repository
-
-### 4. Restore on a new machine
-
-```bash
-git clone https://github.com/yourusername/dotfiles.git ~/.dotfiles
-cd ~/.dotfiles
+# Interactive wizard: Git URL → clone → pull latest → pick categories → copy
 dotsync restore
 ```
 
-## 📋 Common Commands
+Non-interactive:
+
+```bash
+dotsync restore --remote git@github.com:you/dotfiles.git --categories shell,editor --yes
+```
+
+### Upgrading from v1 (home symlinks into repo)
+
+v2 assumes real files at home paths. If you used v1 link mode, run the one-off migration script **before** using v2:
+
+```bash
+python3 scripts/unsymlink_dotfiles_home.py --dry-run
+python3 scripts/unsymlink_dotfiles_home.py --apply
+```
+
+See [docs/v2 migration guide](https://dotsync.readthedocs.io/en/latest/v2_migration.html) for details.
+
+## 📋 Commands
 
 | Command | Description |
 |---------|-------------|
-| `dotsync init [directory]` | Initialize a new dotfiles repository (default: ~/.dotfiles) |
-| `dotsync add <file> [category]` | Add a new file to management |
-| `dotsync add --encrypt <file> [category]` | Add a file with encryption |
-| `dotsync update` | Sync files from home to repository |
-| `dotsync restore` | Restore files from repository to home |
-| `dotsync encrypt <file>` | Convert existing file to encrypted |
-| `dotsync unmanage <file>` | Stop managing a file |
-| `dotsync list` | List all managed files |
-| `dotsync diff` | Show differences between home and repo |
-| `dotsync commit` | Commit changes to git |
-| `dotsync clean` | Remove files from home that are in repo |
-| `dotsync passwd` | Change encryption password |
+| `dotsync track <path> [category] [--encrypt]` | Add a path to the watch list; bootstraps repo on first use |
+| `dotsync untrack <path> [--purge-repo]` | Stop watching; optionally delete mirror copy in repo |
+| `dotsync list [categories]` | List watched paths, categories, encrypt flag, tree vs file |
+| `dotsync categories` | Show host groups and category definitions from filelist |
+| `dotsync save [categories] [-m msg] [--dry-run] [--no-push]` | Walk `@tree` entries → mirror home → repo → commit → **push** |
+| `dotsync restore [categories] [--dry-run]` | Pull latest repo, then copy repo → home (diff on conflict) |
+| `dotsync passwd` | Set or change encryption password |
+| `dotsync showpw` | Print stored encryption password (local machine only) |
+
+### `@tree` entries (dynamic directories)
+
+Add tree lines to `filelist`; membership is re-expanded on every `save`:
+
+```
+@tree:.config/nvim:editor
+@tree:.local/share/my-app/custom-*:tools
+```
+
+Symlinks inside watched trees are **materialized** (target content copied into the repo), not stored as pointer-only.
 
 For detailed usage, see the [documentation](https://dotsync.readthedocs.io).
 
 ## 📁 Repository Structure
 
-After initialization, your repository will look like:
-
 ```
 ~/.dotfiles/
 ├── .git/
-├── filelist          # List of managed files
+├── filelist              # Watch list (atomic paths + @tree lines)
 ├── dotfiles/
-│   ├── plain/       # Unencrypted files
-│   │   ├── common/
-│   │   ├── zsh/
-│   │   └── vim/
-│   └── encrypt/     # Encrypted files
-│       └── ssh/
-└── .plugins/        # Plugin data (passwords, etc.)
+│   ├── plain/            # Unencrypted mirrors
+│   └── encrypt/          # Encrypted mirrors
+├── .dotsync/             # Tree manifests and materialized symlink targets
+└── .plugins/             # Plugin data (passwords, etc.)
 ```
 
 ## 🔐 Encryption Example
 
 ```bash
-# Add a file with encryption
-dotsync add --encrypt ~/.cursor/mcp.json cursor
-
-# The file will be encrypted in the repository
-# When you sync, it's automatically decrypted to your home directory
-
-# Convert an existing plain file to encrypted
-dotsync encrypt ~/.ssh/config
-
-# Change encryption password
-dotsync passwd
+dotsync track --encrypt ~/.ssh/config tools
+dotsync save
+dotsync showpw    # local only — prints password from plugin store
+dotsync passwd    # change encryption password
 ```
 
 ## 🎯 Use Cases
 
-### Share Configurations Across Machines
-
-Keep your workstation and server dotfiles in the same repository, organized by categories:
+### Share configurations across machines
 
 ```
-filelist:
-.zshrc:zsh,workstation
-.vimrc:vim,common
-.ssh/config:ssh|encrypt
+# filelist
+macbook=shell,editor,common
+.zshrc:shell,common
+.vimrc:editor,common
+.ssh/config:tools|encrypt
 ```
 
-### Quick Machine Setup
+### Watch a whole config directory
+
+```
+@tree:.config/nvim:editor
+```
+
+New files under `.config/nvim` are picked up automatically on the next `save`.
+
+### Quick machine setup
 
 ```bash
-# On a new machine
-git clone https://github.com/yourusername/dotfiles.git ~/.dotfiles
-cd ~/.dotfiles
 dotsync restore
-
-# Or if the repository doesn't exist yet
-dotsync init  # Creates ~/.dotfiles automatically
 ```
 
-### Encrypt Sensitive Files
-
-Keep API keys, tokens, and other sensitive data encrypted in your repository while still managing them with dotsync.
+No separate `init` or manual `git clone` required — the restore wizard handles bootstrap on a new machine.
 
 ## 📚 Documentation
 
 For complete documentation, including:
 - Detailed command reference
-- Advanced usage patterns
+- Filelist and `@tree` syntax
 - Encryption guide
-- Migration from v1.x
+- v2 migration from v1 link mode
 
 Visit: **[https://dotsync.readthedocs.io](https://dotsync.readthedocs.io)**
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request. 
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)

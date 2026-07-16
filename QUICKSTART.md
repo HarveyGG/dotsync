@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get up and running with dotsync in minutes!
+Get up and running with dotsync v2 in minutes.
 
 ## Installation
 
@@ -18,137 +18,146 @@ pip install dotsync-cli
 
 ## Your First Dotfiles Repository
 
-### 1. Initialize
+v2 uses a **mirror-only** model: you edit files in `$HOME`, and `save` copies them into a git repo and pushes by default. dotsync never replaces home files with symlinks into the repo.
+
+### 1. Track your first file
 
 ```bash
-mkdir ~/.dotfiles && cd ~/.dotfiles
-dotsync init
+# Creates ~/.dotfiles and runs git init on first track
+dotsync track ~/.zshrc shell
 ```
 
-This creates:
-- A git repository
-- A `filelist` for managing your files
-- Directory structure for organizing dotfiles
+Category is optional — dotsync can infer it from the path.
 
-### 2. Add Your First File
+### 2. Save (mirror + commit + push)
 
 ```bash
-# Add your zsh config
-dotsync add ~/.zshrc
-
-# It automatically infers the category (zsh) from the filename!
-```
-
-### 3. Sync to Repository
-
-```bash
-dotsync update
+dotsync save
 ```
 
 This will:
-- Copy `.zshrc` to the repository
-- Create a symlink from `~/.zshrc` to the repository version
+- Copy `.zshrc` from home into the repo mirror
+- Create a git commit
+- Push to `origin` (prompts for a remote URL if none is configured)
 
-### 4. Commit and Push
+Use `--no-push` only when offline; it prints a warning that changes are not durable until pushed.
+
+### 3. Track more paths or trees
 
 ```bash
-# Add remote (if using GitHub)
-git remote add origin https://github.com/yourusername/dotfiles.git
+dotsync track ~/.gitconfig tools
+dotsync track ~/.config/nvim editor
 
-# Commit your changes
-dotsync commit
-
-# Or manually
-git add .
-git commit -m "Add zsh configuration"
-git push origin main
+# Or add a tree line to filelist for dynamic directories:
+# @tree:.config/nvim:editor
 ```
 
-## Restore on New Machine
+Then save again:
 
 ```bash
-# Clone your dotfiles repo
-git clone https://github.com/yourusername/dotfiles.git ~/.dotfiles
-cd ~/.dotfiles
+dotsync save -m "Add git and nvim configs"
+```
 
-# Install dotsync (if not installed)
-curl -fsSL https://raw.githubusercontent.com/HarveyGG/dotsync/main/install.sh | bash
+## Restore on a New Machine
 
-# Restore all files
+```bash
+# Install dotsync, then run the restore wizard
 dotsync restore
 ```
 
-Done! All your dotfiles are now symlinked and ready to use.
+The wizard will:
+1. Prompt for your Git remote URL (if no local repo exists)
+2. Clone to `~/.dotfiles` (or `$DOTSYNC_REPO`)
+3. Run `git fetch` + `git pull --ff-only`
+4. Show available categories — pick what to restore
+5. Copy repo files to home paths (shows a diff before overwriting conflicts)
+
+Non-interactive example:
+
+```bash
+dotsync restore \
+  --remote https://github.com/yourusername/dotfiles.git \
+  --categories shell,editor \
+  --yes \
+  --conflict overwrite
+```
+
+Files land as **regular files in `$HOME`**, not symlinks.
 
 ## Common Workflows
 
-### Adding Multiple Files
+### Daily edit cycle
 
 ```bash
-dotsync add ~/.vimrc vim
-dotsync add ~/.gitconfig git
-dotsync add ~/.tmux.conf tmux
-dotsync update
-dotsync commit
+vim ~/.zshrc
+dotsync save
 ```
 
-### Encrypting Sensitive Files
+### List and inspect
 
 ```bash
-# Add with encryption
-dotsync add --encrypt ~/.ssh/id_rsa ssh
-
-# Or convert existing file to encrypted
-dotsync add ~/.aws/credentials aws
-dotsync update
-dotsync encrypt ~/.aws/credentials
-dotsync update  # Re-encrypts with new encryption
+dotsync list
+dotsync categories
+dotsync save --dry-run -v    # preview planned mirror ops
+git -C ~/.dotfiles diff      # inspect repo changes
 ```
 
-### Organizing by Machine
+### Encrypt sensitive files
+
+```bash
+dotsync track --encrypt ~/.ssh/config tools
+dotsync save
+dotsync showpw    # local machine only
+dotsync passwd    # rotate password
+```
+
+### Stop watching a path
+
+```bash
+dotsync untrack ~/.old-config
+dotsync untrack ~/.old-config --purge-repo   # also delete mirror in repo
+dotsync save
+```
+
+### Organize by machine
 
 Your `filelist` might look like:
 
 ```
-.zshrc:zsh,workstation
-.vimrc:vim,common
-.ssh/config:ssh|encrypt,common
-.bashrc:bash,server
+macbook=shell,editor,common
+.zshrc:shell,common
+.vimrc:editor,common
+.ssh/config:tools|encrypt
+@tree:.config/nvim:editor
 ```
 
-- Files in `common` category: shared by all machines
-- Files in `workstation` category: only on your workstation
-- Files in `server` category: only on servers
-
-Then restore specific categories:
-```bash
-dotsync restore common workstation  # Only restore common and workstation files
-```
-
-### Updating Files
+Restore only selected categories:
 
 ```bash
-# Edit your file normally
-vim ~/.zshrc
-
-# Sync changes back to repository
-dotsync update
-
-# Commit
-dotsync commit
+dotsync restore common shell
 ```
+
+## Upgrading from v1
+
+If v1 left symlinks in `$HOME` pointing into `~/.dotfiles`, convert them to real files **before** using v2:
+
+```bash
+python3 scripts/unsymlink_dotfiles_home.py --dry-run
+python3 scripts/unsymlink_dotfiles_home.py --apply
+```
+
+See the [v2 migration guide](https://dotsync.readthedocs.io/en/latest/v2_migration.html).
 
 ## Tips
 
-1. **Always commit after updating**: `dotsync update && dotsync commit`
-2. **Use categories wisely**: Organize by purpose (zsh, vim, git) or machine type
-3. **Encrypt sensitive data**: Use `--encrypt` for API keys, tokens, SSH keys
-4. **Check status**: Use `dotsync list` to see all managed files
-5. **See differences**: Use `dotsync diff` before committing
+1. **`save` pushes by default** — durability means remote, not just local commit
+2. **Use categories** — organize by purpose (shell, editor) or machine (laptop, server)
+3. **Use `@tree` for directories** — new files appear on the next `save` without rescanning
+4. **Restore pulls first** — always syncs repo from remote before copying to home
+5. **Conflicts show a diff** — overwrite one file or cancel the entire restore
 
 ## Next Steps
 
 - Read the [full documentation](https://dotsync.readthedocs.io)
-- Explore [advanced features](README.md#features)
-- Check out [examples](https://dotsync.readthedocs.io/cookbook.html)
-
+- Explore the [filelist reference](https://dotsync.readthedocs.io/en/latest/filelist.html)
+- Check the [cookbook](https://dotsync.readthedocs.io/en/latest/cookbook.html)
