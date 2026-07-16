@@ -667,6 +667,81 @@ class TestMain:
         assert ret == 1
         assert 'outside' in caplog.text.lower() or 'home' in caplog.text.lower() or 'path' in caplog.text.lower()
 
+    # ------------------------------------------------------------------------------
+    # Tests for track / untrack commands
+    # ------------------------------------------------------------------------------
+
+    def test_track_bootstraps_repo_when_missing(self, tmp_path):
+        """track creates repo and filelist when none exists"""
+        home = tmp_path / 'home'
+        os.makedirs(home)
+        (home / '.zshrc').write_text('zsh config')
+
+        dotfiles = home / '.dotfiles'
+        assert not dotfiles.exists()
+
+        assert main(args=['track', '.zshrc'], cwd=str(home), home=str(home)) == 0
+
+        assert dotfiles.is_dir()
+        assert (dotfiles / '.git').is_dir()
+        assert (dotfiles / 'filelist').is_file()
+        assert '.zshrc' in (dotfiles / 'filelist').read_text()
+
+    def test_track_adds_file_to_existing_repo(self, tmp_path):
+        """track behaves like add when repo already exists"""
+        home, repo = self.setup_repo(tmp_path, '')
+        (home / '.testfile').write_text('test content')
+
+        assert main(args=['track', '.testfile'], cwd=str(repo), home=str(home)) == 0
+        assert '.testfile' in (repo / 'filelist').read_text()
+
+    def test_add_deprecated_warning(self, tmp_path, caplog):
+        """add emits deprecation warning and still works"""
+        home, repo = self.setup_repo(tmp_path, '')
+        (home / '.testfile').write_text('test content')
+
+        assert main(args=['add', '.testfile'], cwd=str(repo), home=str(home)) == 0
+        assert 'deprecated' in caplog.text.lower()
+        assert 'track' in caplog.text.lower()
+        assert '.testfile' in (repo / 'filelist').read_text()
+
+    def test_untrack_removes_from_filelist(self, tmp_path):
+        """untrack removes managed file from filelist"""
+        home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
+        (home / '.testfile').write_text('test content')
+
+        assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
+
+        assert main(args=['untrack', '.testfile'], cwd=str(repo), home=str(home)) == 0
+        assert '.testfile' not in (repo / 'filelist').read_text()
+
+    def test_unmanage_deprecated_warning(self, tmp_path, caplog):
+        """unmanage emits deprecation warning and still works"""
+        home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
+        (home / '.testfile').write_text('test content')
+
+        assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
+
+        assert main(args=['unmanage', '.testfile'], cwd=str(repo), home=str(home)) == 0
+        assert 'deprecated' in caplog.text.lower()
+        assert 'untrack' in caplog.text.lower()
+        assert '.testfile' not in (repo / 'filelist').read_text()
+
+    def test_untrack_purge_repo_stub(self, tmp_path, caplog):
+        """--purge-repo is accepted but not yet implemented"""
+        home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
+        (home / '.testfile').write_text('test content')
+
+        assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
+
+        assert main(args=['untrack', '--purge-repo', '.testfile'],
+                    cwd=str(repo), home=str(home)) == 0
+        assert 'not yet implemented' in caplog.text.lower()
+        assert '.testfile' not in (repo / 'filelist').read_text()
+
     def test_add_directory_auto_update_only_new_entries(self, tmp_path, monkeypatch, caplog):
         """add dir: auto-update only affects newly added files, not existing category entries"""
         home, repo = self.setup_repo(tmp_path, '.existing:ssh\n')

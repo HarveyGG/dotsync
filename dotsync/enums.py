@@ -4,9 +4,11 @@ import enum
 class Actions(enum.Enum):
     """Actions ordered by typical usage lifecycle"""
     INIT = 'init'          # Initialize dotsync repository (first-time setup)
-    ADD = 'add'            # Add new config file to filelist
+    TRACK = 'track'        # Add config file to filelist (bootstrap repo if missing)
+    UNTRACK = 'untrack'    # Restore file to home and stop managing it
+    ADD = 'add'            # Deprecated alias for track
     ENCRYPT = 'encrypt'    # Convert existing plain config to encrypted
-    UNMANAGE = 'unmanage'  # Restore file to home and stop managing it
+    UNMANAGE = 'unmanage'  # Deprecated alias for untrack
     LIST = 'list'          # List all managed configuration files
     UPDATE = 'update'      # Sync config files from home to repository
     SAVE = 'save'          # Mirror home to repo, commit, and push

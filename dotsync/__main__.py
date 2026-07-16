@@ -379,6 +379,26 @@ For more information, visit the [dotsync documentation](https://github.com/Harve
         git.commit()
 
 
+def bootstrap_repo(home):
+    """Create and initialize the default dotsync repository if missing."""
+    env_repo = os.environ.get('DOTSYNC_REPO')
+    if env_repo:
+        repo = os.path.abspath(os.path.expanduser(env_repo))
+    else:
+        repo = os.path.join(home, '.dotfiles')
+
+    if not os.path.exists(repo):
+        os.makedirs(repo, exist_ok=True)
+        logging.info(f'Created repository directory: {repo}')
+    elif not os.path.isdir(repo):
+        logging.error(f'{repo} exists but is not a directory')
+        return None
+
+    flist_fname = os.path.join(repo, 'filelist')
+    init_repo(repo, flist_fname)
+    return repo
+
+
 def infer_category_from_path(filepath):
     """Infer category name from file path based on common patterns"""
     basename = os.path.basename(filepath)
@@ -1207,7 +1227,9 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
     logging.debug(f'ran with arguments {args}')
 
     # For init command, use specified directory or default to ~/.dotfiles or cwd
-    # For other commands, automatically find repository
+    # For track/add, bootstrap repo if missing; other commands require existing repo
+    bootstrap_if_missing = args.action in (Actions.TRACK, Actions.ADD)
+
     if args.action == Actions.INIT:
         if hasattr(args, 'init_directory') and args.init_directory:
             # User specified a directory
@@ -1241,6 +1263,16 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
         elif not os.path.isdir(repo):
             logging.error(f'{repo} exists but is not a directory')
             return 1
+    elif bootstrap_if_missing:
+        found_repo = find_dotsync_repo(cwd, home)
+        if found_repo is None:
+            repo = bootstrap_repo(home)
+            if repo is None:
+                return 1
+            logging.info(f'Bootstrapped dotsync repository at: {repo}')
+        else:
+            repo = found_repo
+            logging.debug(f'Found dotsync repository at: {repo}')
     else:
         found_repo = find_dotsync_repo(cwd, home)
         if found_repo is None:
@@ -1270,8 +1302,10 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
     plugins, plugin_dirs, dotfiles = setup_plugins_and_dirs(repo)
     plugins['plain'].hard = args.hard_mode
 
-    # check for add
-    if args.action == Actions.ADD:
+    # check for track / add (deprecated alias)
+    if args.action in (Actions.TRACK, Actions.ADD):
+        if args.action == Actions.ADD:
+            logging.warning("'add' is deprecated; use 'track' instead")
         return add_to_filelist(
             flist_fname, args.add_filepath, args.add_category, home, 
             args.dry_run, args.verbose_level, 
@@ -1289,11 +1323,15 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
             return 1
         return encrypt_to_filelist(flist_fname, args.add_filepath, home, args.dry_run)
 
-    # check for unmanage
-    if args.action == Actions.UNMANAGE:
+    # check for untrack / unmanage (deprecated alias)
+    if args.action in (Actions.UNTRACK, Actions.UNMANAGE):
+        if args.action == Actions.UNMANAGE:
+            logging.warning("'unmanage' is deprecated; use 'untrack' instead")
         if not args.add_filepath:
-            logging.error('unmanage action requires filepath argument')
+            logging.error('untrack action requires filepath argument')
             return 1
+        if args.purge_repo:
+            logging.warning('--purge-repo is not yet implemented; removing from filelist only')
         return unmanage_from_filelist(flist_fname, args.add_filepath, home, repo, plugins, plugin_dirs, args.dry_run, policy=from_args(args))
 
     # check for list

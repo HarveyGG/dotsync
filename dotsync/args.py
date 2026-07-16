@@ -67,24 +67,29 @@ class Arguments:
         parser.add_argument('--hard', action='store_true',
                             help=HELP['hard-mode'])
         parser.add_argument('--encrypt', action='store_true',
-                            help='encrypt the file (for add command)')
+                            help='encrypt the file (for track command)')
+        parser.add_argument('--purge-repo', action='store_true',
+                            help='remove mirrored files from repository when untracking')
         parser.add_argument('--non-interactive', action='store_true',
                             help='skip prompts, use policy defaults')
 
         parser.add_argument('action', choices=[a.value for a in Actions],
                             help=HELP['action'])
-        # For 'add' action: category[0] is filepath, category[1] is optional category name
+        # For 'track'/'add': category[0] is filepath, category[1] is optional category name
         # For 'encrypt' action: category[0] is filepath
-        # For 'unmanage' action: category[0] is filepath
+        # For 'untrack'/'unmanage': category[0] is filepath
         # For other actions: category is list of category names
         category_help = HELP['category']
-        add_help = 'filepath [category] - add new config file to filelist'
+        track_help = 'filepath [category] - add config file to filelist'
         encrypt_help = 'filepath - convert existing config file to encrypted'
-        unmanage_help = 'filepath - restore file to home and stop managing it'
+        untrack_help = 'filepath - restore file to home and stop managing it'
         
         # For init: category[0] is optional directory path (defaults to ~/.dotfiles)
         init_help = '[directory] - initialize dotsync repository (default: ~/.dotfiles)'
-        category_help_extended = f'{category_help} (for "init": {init_help}, for "add": {add_help}, for "encrypt": {encrypt_help}, for "unmanage": {unmanage_help})'
+        category_help_extended = (
+            f'{category_help} (for "init": {init_help}, for "track": {track_help}, '
+            f'for "encrypt": {encrypt_help}, for "untrack": {untrack_help})'
+        )
         
         parser.add_argument('category', nargs='*',
                             default=['common', info.hostname],
@@ -127,10 +132,10 @@ class Arguments:
             else:
                 # No arguments, use default directory
                 self.init_directory = None
-        # For add action, category[0] is filepath, category[1] is category name
-        elif args.action == 'add':
+        # For track/add, category[0] is filepath, category[1] is category name
+        elif args.action in ('track', 'add'):
             if len(args.category) < 1:
-                parser.error('add action requires at least one argument: filepath [category]')
+                parser.error('track action requires at least one argument: filepath [category]')
             self.add_filepath = args.category[0]
             self.add_category = args.category[1] if len(args.category) > 1 else None
         # For encrypt action, category[0] is filepath
@@ -139,10 +144,10 @@ class Arguments:
                 parser.error('encrypt action requires filepath argument')
             self.add_filepath = args.category[0]
             self.add_category = None
-        # For unmanage action, category[0] is filepath
-        elif args.action == 'unmanage':
+        # For untrack/unmanage, category[0] is filepath
+        elif args.action in ('untrack', 'unmanage'):
             if len(args.category) < 1:
-                parser.error('unmanage action requires filepath argument')
+                parser.error('untrack action requires filepath argument')
             self.add_filepath = args.category[0]
             self.add_category = None
         else:
@@ -169,6 +174,7 @@ class Arguments:
         self.skip_pull = getattr(args, 'skip_pull', False)
         self.no_push = getattr(args, 'no_push', False)
         self.commit_message = getattr(args, 'commit_message', None)
+        self.purge_repo = getattr(args, 'purge_repo', False)
         self.action = Actions(args.action)
         self.categories = args.category
 
