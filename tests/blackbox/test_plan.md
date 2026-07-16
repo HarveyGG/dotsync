@@ -1,0 +1,1015 @@
+# Black-box E2E Test Plan (Task 16)
+
+**Status:** Draft for Opus 4.8 review gate (Step 2) — do not implement harness or execute until review feedback is merged.
+
+**Scope:** End-to-end scenarios run in an isolated sandbox. Each scenario invokes the real `dotsync` CLI as a subprocess (not `main()` directly), with `$HOME` and `DOTSYNC_REPO` confined to temporary directories.
+
+**Design reference:** [DESIGN.md](../../.vibe/dotsync-cli/.spec/tree-targets-safe-restore/DESIGN.md) — mirror-only model, pull-before-restore, conflict diff + abort-all, tree walk on save, symlink materialization.
+
+**Success criteria mapped:** SC1–SC7 from DESIGN § Success criteria appear in assertions below.
+
+---
+
+## Sandbox conventions (harness Step 4)
+
+| Variable / artifact | Purpose |
+|---------------------|---------|
+| `$SANDBOX` | pytest `tmp_path` root for the scenario |
+| `$HOME` → `$SANDBOX/home` | Isolated user home; all watched paths live here |
+| `DOTSYNC_REPO` → `$SANDBOX/repo` | Dotfiles git working copy (override default `~/.dotfiles`) |
+| `$SANDBOX/bare.git` | Local bare remote for push/pull tests (`file://` URL) |
+| `$SANDBOX/home2` | Second HOME for “fresh machine” restore (lifecycle) |
+| CLI invocation | `uv run dotsync <args>` with `env={HOME, DOTSYNC_REPO}` and `cwd=$HOME` unless noted |
+| Git identity | `GIT_AUTHOR_*` / `GIT_COMMITTER_*` set to fixed test values in sandbox env |
+| Interactive input | Pre-scripted stdin via subprocess or `pexpect`; document expected prompts per scenario |
+| Isolation invariant | **No writes outside `$SANDBOX`** — verify with path checks in harness |
+
+**Repo layout (v2 mirror):**
+
+- Atomic files: `$REPO/dotfiles/plain/<category>/<relpath>`
+- Encrypted files: `$REPO/dotfiles/encrypt/<category>/<relpath>`
+- Tree sidecars: `$REPO/.dotsync/manifests/<category>.json`
+- External symlink materialization: `$REPO/.dotsync/materialized/<id>/...`
+
+**Non-interactive flags (when prompts would block):**
+
+| Situation | Flags |
+|-----------|-------|
+| Save without push (offline / faster tests) | `--no-push --non-interactive` |
+| Save with prune confirm | `--yes --non-interactive` |
+| Restore on clean home | `--non-interactive --conflict overwrite` |
+| Restore with pull skipped (only when remote unchanged) | `--skip-pull` |
+| Restore wizard / remote URL | `--remote file://... --categories ... --yes` |
+
+**Cleanup (all scenarios):** pytest `tmp_path` teardown removes sandbox. No manual cleanup required unless a scenario notes a harness-side artifact to assert before teardown.
+
+---
+
+## Scenario index
+
+| ID | Category | Priority |
+|----|----------|----------|
+| L1 | Lifecycle | P0 |
+| L2 | Lifecycle | P0 |
+| L3 | Lifecycle | P1 |
+| L4 | Lifecycle | P1 |
+| M1 | Mirror-only | P0 |
+| M2 | Mirror-only | P0 |
+| M3 | Mirror-only | P1 |
+| RP1 | Restore pull | P0 |
+| RP2 | Restore pull | P0 |
+| RP3 | Restore pull | P1 |
+| RP4 | Restore pull | P2 |
+| C1 | Conflicts | P0 |
+| C2 | Conflicts | P0 |
+| C3 | Conflicts | P0 |
+| C4 | Conflicts | P1 |
+| C5 | Conflicts | P1 |
+| T1 | Trees | P0 |
+| T2 | Trees | P0 |
+| T3 | Trees | P1 |
+| T4 | Trees | P1 |
+| S1 | Symlinks | P0 |
+| S2 | Symlinks | P0 |
+| S3 | Symlinks | P1 |
+| S4 | Symlinks | P1 |
+| S5 | Symlinks | P2 |
+| E1 | Encrypt | P0 |
+| E2 | Encrypt | P1 |
+| E3 | Encrypt | P2 |
+| B1 | Boundaries | P1 |
+| B2 | Boundaries | P0 |
+| B3 | Boundaries | P0 |
+| B4 | Boundaries | P1 |
+| B5 | Boundaries | P2 |
+
+---
+
+## Lifecycle
+
+### L1 — Full lifecycle: track → save (push) → restore on fresh HOME
+
+**Maps to:** SC2, SC4, SC6, SC7
+
+**Setup**
+
+1. Create `$HOME`, empty `$REPO` (no repo yet).
+2. Create `$SANDBOX/bare.git` (`git init --bare`).
+3. Write `$HOME/.zshrc` with content `export ZSH=1\n`.
+4. Write `$HOME/.vimrc` with content `set number\n`.
+
+**Commands**
+
+```bash
+# cwd=$HOME throughout
+dotsync track .zshrc shell
+dotsync track .vimrc editor
+# When save prompts for remote URL, provide file://$SANDBOX/bare.git (or pre-add origin in harness)
+dotsync save -m "initial dotfiles"
+# Simulate new machine
+rm -rf $SANDBOX/home2 && mkdir -p $SANDBOX/home2
+# HOME=$SANDBOX/home2, DOTSYNC_REPO=$SANDBOX/home2/.dotfiles (default)
+dotsync restore --remote file://$SANDBOX/bare.git --categories shell,editor --yes
+```
+
+**Assertions**
+
+- After `track`: `$REPO/.git` exists; `filelist` contains `.zshrc` and `.vimrc`.
+- After `save`: exit 0; `git -C $REPO log -1` shows commit; `git -C $REPO ls-remote origin` has refs (push succeeded).
+- Mirror paths exist: `dotfiles/plain/shell/.zshrc`, `dotfiles/plain/editor/.vimrc`.
+- After restore on `home2`: both files exist under `home2` with original bytes.
+- **SC1:** No path under `home2` is a symlink (`find home2 -type l` empty for managed paths).
+- `home2/.dotfiles` cloned and at same commit as post-save `$REPO`.
+
+**Cleanup**
+
+- pytest `tmp_path` teardown.
+
+---
+
+### L2 — Untrack removes from filelist; home file preserved
+
+**Setup**
+
+1. Init repo at `$REPO` with `filelist` containing `.profile:common\n`.
+2. Write `$HOME/.profile` with `profile content`.
+3. `dotsync save --no-push --non-interactive common`.
+
+**Commands**
+
+```bash
+dotsync untrack .profile
+dotsync list common
+```
+
+**Assertions**
+
+- Exit 0 for untrack.
+- `.profile` absent from `$REPO/filelist`.
+- `$HOME/.profile` still exists with `profile content` (not deleted from home).
+- Repo mirror `$REPO/dotfiles/plain/common/.profile` still present (no `--purge-repo`).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### L3 — Untrack with `--purge-repo` deletes mirror copy
+
+**Setup**
+
+1. Same as L2 through save.
+2. Confirm mirror exists at `dotfiles/plain/common/.profile`.
+
+**Commands**
+
+```bash
+dotsync untrack --purge-repo .profile
+```
+
+**Assertions**
+
+- Exit 0.
+- `.profile` not in `filelist`.
+- Mirror path `dotfiles/plain/common/.profile` does not exist.
+- `$HOME/.profile` still present locally.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### L4 — Track bootstraps repo when missing (implicit init)
+
+**Setup**
+
+1. `$HOME` only; no `$REPO`, no `~/.dotfiles` under sandbox home.
+2. `$HOME/.gitconfig` with `[user]\n\tname = Test\n`.
+
+**Commands**
+
+```bash
+dotsync track .gitconfig tools
+```
+
+**Assertions**
+
+- Exit 0.
+- `$HOME/.dotfiles/.git` exists (default repo location when `DOTSYNC_REPO` unset).
+- `filelist` contains `.gitconfig`.
+- `$HOME/.gitconfig` unchanged (still regular file at home).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+## Mirror-only
+
+### M1 — Home never becomes repo symlink after save + restore
+
+**Maps to:** SC1
+
+**Setup**
+
+1. Init `$REPO`; filelist: `.bashrc:shell\n`.
+2. `$HOME/.bashrc` → `shell config v1`.
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive shell
+dotsync restore shell --non-interactive --skip-pull --conflict overwrite
+```
+
+**Assertions**
+
+- After save: `$HOME/.bashrc` is a regular file (`test ! -L $HOME/.bashrc`).
+- After restore: still regular file, not symlink to `$REPO`.
+- Content byte-identical to repo mirror `dotfiles/plain/shell/.bashrc`.
+- Grep `$HOME` for symlinks pointing into `$REPO`: none for managed path.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### M2 — Byte-identical round-trip (atomic file)
+
+**Maps to:** SC1, SC2
+
+**Setup**
+
+1. filelist: `.config/app/settings.json:editor\n`.
+2. Create nested file with multi-line UTF-8 content including non-ASCII (e.g. `café\nline2\n`).
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive editor
+# Wipe home copy
+rm -rf $HOME/.config
+dotsync restore editor --non-interactive --skip-pull --conflict overwrite
+```
+
+**Assertions**
+
+- `sha256sum` (or equivalent) of home file equals pre-save hash.
+- File mode preserved where platform supports (`copy2` semantics).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### M3 — Nested tree paths restore as regular files (no link mode)
+
+**Setup**
+
+1. filelist with three atomic entries under `.mockdir/...` (hidden + nested), matching integration test layout.
+2. Populate tree under `$HOME/.mockdir`.
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive mock
+rm -rf $HOME/.mockdir
+dotsync restore mock --non-interactive --skip-pull --conflict overwrite
+```
+
+**Assertions**
+
+- Every restored path under `.mockdir` is a regular file.
+- No `$HOME` path is symlink.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+## Restore pull
+
+### RP1 — Pull runs before any home copy
+
+**Maps to:** SC7
+
+**Setup**
+
+1. Publish content to `$SANDBOX/bare.git` from a “source” repo (filelist + mirrored `.file:common`).
+2. Local `$REPO` has `origin` → bare; **behind** remote (new commit on bare only).
+3. Empty `$HOME` (file missing locally).
+
+**Commands**
+
+```bash
+dotsync restore common --non-interactive --conflict overwrite
+```
+
+**Assertions**
+
+- stdout contains `Restoring from commit <sha>` where `<sha>` matches remote HEAD (not stale local HEAD).
+- `$HOME/.file` created with remote version bytes.
+- Harness log or git trace shows fetch/pull before first file write (order: pull → copy).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### RP2 — Diverged repo aborts restore (no home writes)
+
+**Maps to:** SC7
+
+**Setup**
+
+1. `$REPO` with `origin`, local and remote diverged (non-FF pull impossible).
+2. filelist + mirrored file in repo; `$HOME/.file` absent.
+
+**Commands**
+
+```bash
+dotsync restore common --non-interactive --conflict overwrite
+```
+
+**Assertions**
+
+- Exit code non-zero.
+- stderr/log contains pull failure message (e.g. `Failed to pull latest changes`).
+- `$HOME/.file` still absent (no partial restore).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### RP3 — `--skip-pull` uses local HEAD without fetch
+
+**Setup**
+
+1. Same as RP1 (local behind remote) but user explicitly opts out of pull.
+2. Local mirror has version `local-content`; remote has `remote-content`.
+
+**Commands**
+
+```bash
+dotsync restore common --skip-pull --non-interactive --conflict overwrite
+```
+
+**Assertions**
+
+- Exit 0.
+- `$HOME/.file` content is `local-content` (stale local repo applied).
+- No fetch/pull in git trace (document as **unsafe** path per DESIGN).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### RP4 — No remote: restore uses local HEAD with informational message
+
+**Setup**
+
+1. `$REPO` initialized, no `origin`; filelist + one saved file.
+2. Clean `$HOME`.
+
+**Commands**
+
+```bash
+dotsync restore common --non-interactive --skip-pull --conflict overwrite
+```
+
+**Assertions**
+
+- Exit 0.
+- File restored from local repo.
+- stdout/stderr notes no remote / using local HEAD (exact wording per implementation).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+## Conflicts
+
+### C1 — Unified diff shown; cancel aborts entire restore
+
+**Maps to:** SC6
+
+**Setup**
+
+1. filelist: `.file1:common\n.file2:common\n`.
+2. Save both to repo via `save --no-push`.
+3. `$HOME/.file1` → `home-one\n` (differs); `$HOME/.file2` → `home-two\n` (differs).
+
+**Commands**
+
+```bash
+# Interactive: when prompted after diff for file1, answer cancel ('c')
+dotsync restore common
+```
+
+**Assertions**
+
+- Exit code non-zero.
+- stdout contains unified diff markers (`---`, `+++`, `-home-one`, `+repo-one` or equivalent).
+- `$HOME/.file1` unchanged (`home-one`).
+- `$HOME/.file2` unchanged (`home-two`) — **no later files written** after cancel.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### C2 — Overwrite continues restore for remaining paths
+
+**Maps to:** SC6
+
+**Setup**
+
+1. Same file pair as C1.
+
+**Commands**
+
+```bash
+# Interactive: answer overwrite ('o') on file1 conflict
+dotsync restore common
+```
+
+**Assertions**
+
+- Exit 0.
+- `$HOME/.file1` matches repo version.
+- `$HOME/.file2` matches repo version (restore continued).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### C3 — Identical home file skipped without prompt
+
+**Setup**
+
+1. filelist: `.same:common\n`.
+2. Save; keep identical copy at `$HOME/.same`.
+
+**Commands**
+
+```bash
+# stdin must not be read — harness fails if input() invoked
+dotsync restore common --non-interactive --skip-pull
+```
+
+**Assertions**
+
+- Exit 0.
+- No diff output for `.same`.
+- File unchanged.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### C4 — Non-interactive `--conflict overwrite` applies all
+
+**Setup**
+
+1. Two conflicting files as in C1.
+
+**Commands**
+
+```bash
+dotsync restore common --non-interactive --conflict overwrite --skip-pull
+```
+
+**Assertions**
+
+- Exit 0.
+- Both home files match repo.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### C5 — Non-interactive `--conflict abort` exits without writes
+
+**Setup**
+
+1. Single conflicting file `.conflict:common`.
+
+**Commands**
+
+```bash
+dotsync restore common --non-interactive --conflict abort --skip-pull
+```
+
+**Assertions**
+
+- Exit non-zero.
+- Home file unchanged.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+## Trees
+
+### T1 — New file under `@tree` picked up on second save (no scan)
+
+**Maps to:** SC5
+
+**Setup**
+
+1. filelist: `@tree:.config/myapp:editor\n`.
+2. `$HOME/.config/myapp/settings.json` → `{"v":1}`.
+3. First save.
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive editor
+echo '{"v":1,"new":true}' > $HOME/.config/myapp/plugins.json
+dotsync save --no-push --non-interactive editor
+```
+
+**Assertions**
+
+- After second save: mirror includes `dotfiles/plain/editor/.config/myapp/plugins.json`.
+- Git commit includes new file.
+- No separate `scan` command used.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### T2 — Glob filter on `@tree` excludes non-matching paths
+
+**Setup**
+
+1. filelist: `@tree:.agents/skills/vibe-module-*:tools\n`.
+2. Create:
+   - `.agents/skills/vibe-module-foo/SKILL.md`
+   - `.agents/skills/vibe-module-bar/SKILL.md`
+   - `.agents/skills/other-module/SKILL.md`
+   - `.agents/skills/vibe-module-baz/node_modules/pkg/index.js`
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive tools
+```
+
+**Assertions**
+
+- Mirrors exist for `vibe-module-foo` and `vibe-module-bar` only.
+- `other-module` not mirrored.
+- No path under mirror contains `node_modules`.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### T3 — Prune stale repo file after tree member removed (with confirm)
+
+**Setup**
+
+1. filelist: `@tree:.config/myapp:editor\n`.
+2. Save with `settings.json` and `old.json`.
+3. Delete `$HOME/.config/myapp/old.json`.
+
+**Commands**
+
+```bash
+# Interactive: confirm prune with 'y'
+dotsync save --no-push editor
+# Or non-interactive:
+dotsync save --no-push --yes --non-interactive editor
+```
+
+**Assertions**
+
+- `old.json` absent from repo mirror after save.
+- `settings.json` still present.
+- With interactive run: user saw deletion list before confirm.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### T4 — Tree save + restore round-trip on clean home
+
+**Maps to:** SC5, SC1
+
+**Setup**
+
+1. filelist: `@tree:.config/nvim:editor\n`.
+2. `$HOME/.config/nvim/init.lua` → `require('plugins')\n`.
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive editor
+rm -rf $HOME/.config
+dotsync restore editor --non-interactive --skip-pull --conflict overwrite
+```
+
+**Assertions**
+
+- Restored `init.lua` bytes match original.
+- Not a symlink.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+## Symlinks
+
+### S1 — Internal symlink materialized (target inside tree)
+
+**Maps to:** SC3
+
+**Setup**
+
+1. filelist: `@tree:.config/app:editor\n`.
+2. `$HOME/.config/app/real.txt` → `hello`.
+3. `$HOME/.config/app/link.txt` → symlink to `real.txt`.
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive editor
+```
+
+**Assertions**
+
+- Repo contains bytes at `dotfiles/plain/editor/.config/app/real.txt` (or canonical path per manifest).
+- Sidecar `$REPO/.dotsync/manifests/editor.json` lists `link.txt` with `kind: symlink`, `target: real.txt`.
+- Pointer-only symlink not stored as lone symlink file in mirror (content materialized).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### S2 — External symlink (T6) materialized under `.dotsync/materialized/`
+
+**Maps to:** SC3
+
+**Setup**
+
+1. `$SANDBOX/external/secret.cfg` → `external-data`.
+2. filelist: `@tree:.config/app:tools\n`.
+3. `$HOME/.config/app/link.cfg` → symlink to `$SANDBOX/external/secret.cfg`.
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive tools
+```
+
+**Assertions**
+
+- Materialized path under `$REPO/.dotsync/materialized/` contains `external-data`.
+- Manifest entry `canonical_repo_path` starts with `.dotsync/materialized/`.
+- Sidecar records absolute external target string.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### S3 — Broken symlink: warn and skip (no mirror artifact)
+
+**Setup**
+
+1. filelist: `@tree:.config/app:editor\n`.
+2. `$HOME/.config/app/broken.txt` → symlink to `missing.txt` (target does not exist).
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive editor
+```
+
+**Assertions**
+
+- Exit 0 (save continues).
+- stderr/log contains warning mentioning `broken symlink` and `.config/app/broken.txt`.
+- No mirror file created for broken link.
+- Manifest empty or omits broken entry.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### S4 — Dedup when symlink target also watched (A → B, both in tree)
+
+**Setup**
+
+1. filelist: `@tree:.config/app:editor\n`.
+2. `real.txt` and `link.txt` → `real.txt` as in unit test.
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive editor
+```
+
+**Assertions**
+
+- Single canonical content blob in repo for `real.txt`.
+- No duplicate mirror at `link.txt` path.
+- Manifest has one entry aliasing link → canonical.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### S5 — Restore recreates internal symlink when target exists in tree
+
+**Setup**
+
+1. Complete S1 save.
+2. Wipe `$HOME/.config/app`.
+
+**Commands**
+
+```bash
+dotsync restore editor --non-interactive --skip-pull --conflict overwrite
+```
+
+**Assertions**
+
+- `$HOME/.config/app/real.txt` regular file with `hello`.
+- If DESIGN restore rules apply: `link.txt` is symlink to `real.txt` **when target exists in restored tree**; otherwise regular file at link path — assert per current `restore_symlinks` behavior documented in implementation.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+## Encrypt
+
+### E1 — track --encrypt → save → restore round-trip
+
+**Maps to:** SC3 (encrypted content materialized as ciphertext in repo)
+
+**Setup**
+
+1. Init repo; set password via stdin for `dotsync passwd` (e.g. `testpass123`).
+2. `$HOME/.secret` → `plaintext secret\n`.
+
+**Commands**
+
+```bash
+dotsync track --encrypt .secret private
+dotsync save --no-push --non-interactive private
+rm $HOME/.secret
+dotsync restore private --non-interactive --skip-pull --conflict overwrite
+# Provide same password if prompted on restore
+```
+
+**Assertions**
+
+- Mirror under `dotfiles/encrypt/private/.secret` exists and differs from plaintext.
+- After restore: `$HOME/.secret` decrypts to original plaintext (byte match).
+- Home file is regular file, not symlink.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### E2 — showpw prints stored password (local only)
+
+**Setup**
+
+1. After E1 `passwd` with known password.
+
+**Commands**
+
+```bash
+dotsync showpw
+```
+
+**Assertions**
+
+- Exit 0.
+- stdout trimmed equals configured password.
+- Document in test docstring: local-only security warning per CLI help.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### E3 — showpw exits non-zero when no password configured
+
+**Setup**
+
+1. Fresh repo; encrypted filelist entry but no `passwd` run.
+
+**Commands**
+
+```bash
+dotsync showpw
+```
+
+**Assertions**
+
+- Exit non-zero.
+- stderr explains missing password.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+## Boundaries
+
+### B1 — Empty filelist: save succeeds with no file ops
+
+**Setup**
+
+1. Init `$REPO`; filelist empty (only comments or blank).
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive
+```
+
+**Assertions**
+
+- Exit 0.
+- No files under `dotfiles/` created.
+- Optional: commit may still occur for metadata-only or no commit — assert per implementation (document actual behavior).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### B2 — Missing remote: user declines URL → save aborts
+
+**Maps to:** SC2 (push required for durability)
+
+**Setup**
+
+1. Repo without `origin`; filelist + home file ready.
+
+**Commands**
+
+```bash
+# Interactive: empty line or 'n' when prompted for remote URL
+dotsync save common
+```
+
+**Assertions**
+
+- Exit non-zero.
+- Log contains `Aborted` or equivalent.
+- Local mirror may exist but push not attempted / no silent success message claiming durability.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### B3 — Push failure exits non-zero
+
+**Maps to:** SC2
+
+**Setup**
+
+1. `origin` points to bare repo that **rejects** push (harness: bare with `receive.denyCurrentBranch` or push to read-only remote).
+2. filelist + content ready.
+
+**Commands**
+
+```bash
+dotsync save common --non-interactive
+```
+
+**Assertions**
+
+- Exit non-zero.
+- stderr/log contains push failure message.
+- Local commit may exist; test documents that durability goal failed.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### B4 — Binary conflict shows summary instead of text diff
+
+**Maps to:** SC6 (binary / encrypted diff path)
+
+**Setup**
+
+1. filelist: `.bin:common\n`.
+2. Save a small binary blob (e.g. `printf '\x00\x01\x02\xff' > $HOME/.bin`).
+3. Overwrite `$HOME/.bin` with different bytes before restore.
+
+**Commands**
+
+```bash
+dotsync restore common
+# Do not complete overwrite — only capture output until prompt
+```
+
+**Assertions**
+
+- stdout/stderr contains binary summary (e.g. `Binary files differ` or size/hash summary per `interaction.show_restore_diff`).
+- Does **not** dump raw binary to terminal.
+- Prompt still offers overwrite / cancel.
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+### B5 — `--no-push` prints durability warning
+
+**Setup**
+
+1. Normal save-ready repo with origin configured.
+
+**Commands**
+
+```bash
+dotsync save --no-push --non-interactive common
+```
+
+**Assertions**
+
+- Exit 0.
+- stderr/log contains warning that assets are not durable until pushed (wording per implementation).
+
+**Cleanup**
+
+- pytest teardown.
+
+---
+
+## Harness implementation notes (Step 4 — not in scope for Step 1)
+
+- Map each scenario ID to a pytest parametrized case or explicit function in `test_scenarios.py`.
+- Provide `sandbox_factory` fixture: creates HOME, REPO, optional bare remote, sets env, returns paths + `run_dotsync(*args)` helper.
+- Mark suite: `@pytest.mark.blackbox` (register in `pyproject.toml`).
+- For interactive scenarios (C1, C2, T3, B2, B4): use stdin pipe or documented input sequence.
+- Priority P0 scenarios should pass before P1/P2 in CI ordering if runtime is constrained.
+
+---
+
+## Review checklist (Opus 4.8 gate)
+
+- [ ] All DESIGN success criteria SC1–SC7 covered by at least one scenario.
+- [ ] Sandbox isolation assumptions safe (no real `$HOME`, no network except `file://` git).
+- [ ] Missing edge cases: v1 deprecation aliases, category filtering, restore wizard non-interactive, encrypt tree `@tree:...|encrypt`, large-file / permission errors.
+- [ ] Priority ordering reasonable for CI.
+- [ ] Assertions observable via subprocess exit code + filesystem + stdout/stderr only.
+
+**Review feedback:** _(pending Step 2)_
