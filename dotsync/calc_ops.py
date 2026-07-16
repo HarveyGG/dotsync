@@ -112,14 +112,10 @@ class CalcOps:
                         fops.remove(source)
 
             for slave in slaves:
-                if slave != source:
-                    if os.path.isfile(slave) or os.path.islink(slave):
-                        if os.path.realpath(slave) != master:
-                            fops.remove(slave)
-                        else:
-                            # already linked to master so just ignore
-                            continue
-                fops.link(master, slave)
+                if slave == source:
+                    continue
+                if os.path.isfile(slave) or os.path.islink(slave):
+                    fops.remove(slave)
 
         return fops
 
@@ -153,7 +149,7 @@ class CalcOps:
     def _handle_restore_conflict(self, source, dest):
         """Handle conflict for restore operation (simpler than unmanage)"""
         if not os.path.exists(dest):
-            if os.path.islink(dest):
+            if os.path.lexists(dest):
                 os.remove(dest)
             return (True, True)
 
@@ -164,20 +160,8 @@ class CalcOps:
         except Exception:
             pass
 
-        if os.path.islink(dest):
-            link_target = os.readlink(dest)
-            repo_abs = os.path.abspath(source)
-            repo_root = os.path.dirname(os.path.dirname(self.repo))
-            if os.path.abspath(link_target) == repo_abs or link_target.startswith(repo_root + os.sep):
-                logging.info(f'{dest} already linked to repo, replacing with new file')
-                os.remove(dest)
-                return (True, True)
-            dest_exists, is_sym = True, True
-        else:
-            dest_exists, is_sym = True, False
-
         if self.policy and self.policy.non_interactive:
-            result = decide_conflict(dest_exists, is_sym, False, self.policy)
+            result = decide_conflict(True, False, False, self.policy)
             if result == (True, True):
                 os.remove(dest)
                 return (True, True)

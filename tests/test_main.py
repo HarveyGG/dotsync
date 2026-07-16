@@ -71,53 +71,49 @@ class TestMain:
         open(home / 'file', 'w').close()
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
-        assert (home / 'file').is_symlink()
-        assert repo in (home / 'file').resolve().parents
+        assert not (home / 'file').exists()
+        assert (repo / 'dotfiles' / 'plain' / 'common' / 'file').exists()
 
     def test_update_home_repo(self, tmp_path, monkeypatch):
         home, repo = self.setup_repo(tmp_path, 'file')
         open(home / 'file', 'w').close()
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
+        assert not (home / 'file').exists()
 
         monkeypatch.setattr('builtins.input', lambda p: '0')
 
-        os.remove(home / 'file')
         open(home / 'file', 'w').close()
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
-
-        assert (home / 'file').is_symlink()
-        assert repo in (home / 'file').resolve().parents
+        assert (repo / 'dotfiles' / 'plain' / 'common' / 'file').exists()
 
     def test_restore_nohome_repo(self, tmp_path):
         home, repo = self.setup_repo(tmp_path, 'file')
         open(home / 'file', 'w').close()
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
-        assert (home / 'file').is_symlink()
-        assert repo in (home / 'file').resolve().parents
+        assert not (home / 'file').exists()
 
-        os.remove(home / 'file')
         assert main(args=['restore'], cwd=str(repo), home=str(home)) == 0
-        assert (home / 'file').is_symlink()
-        assert repo in (home / 'file').resolve().parents
+        assert (home / 'file').is_file()
+        assert not (home / 'file').is_symlink()
 
     def test_restore_home_repo(self, tmp_path, monkeypatch):
         home, repo = self.setup_repo(tmp_path, 'file')
         open(home / 'file', 'w').close()
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
+        assert not (home / 'file').exists()
 
         monkeypatch.setattr('builtins.input', lambda p: 'y')
 
-        os.remove(home / 'file')
         open(home / 'file', 'w').close()
 
         assert main(args=['restore'], cwd=str(repo), home=str(home)) == 0
 
-        assert (home / 'file').is_symlink()
-        assert repo in (home / 'file').resolve().parents
+        assert (home / 'file').is_file()
+        assert not (home / 'file').is_symlink()
 
     def test_restore_hard_nohome_repo(self, tmp_path):
         home, repo = self.setup_repo(tmp_path, 'file')
@@ -126,11 +122,8 @@ class TestMain:
             f.write(data)
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
-        assert (home / 'file').is_symlink()
-        assert repo in (home / 'file').resolve().parents
-
-        os.remove(home / 'file')
         assert not (home / 'file').exists()
+
         assert main(args=['restore', '--hard'],
                     cwd=str(repo), home=str(home)) == 0
         assert (home / 'file').exists()
@@ -142,8 +135,9 @@ class TestMain:
         open(home / 'file', 'w').close()
 
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
-        assert (home / 'file').is_symlink()
-        assert repo in (home / 'file').resolve().parents
+        assert main(args=['restore'], cwd=str(repo), home=str(home)) == 0
+        assert (home / 'file').is_file()
+        assert not (home / 'file').is_symlink()
 
         assert main(args=['clean'], cwd=str(repo), home=str(home)) == 0
         assert not (home / 'file').exists()
@@ -191,6 +185,7 @@ class TestMain:
 
         ret = main(args=['update', '--hard'], cwd=str(repo), home=str(home))
         assert ret == 0
+        assert main(args=['restore'], cwd=str(repo), home=str(home)) == 0
 
         (home / 'file').write_text('hello world')
 
@@ -230,7 +225,7 @@ class TestMain:
         assert repo_file.read_text() != txt
 
     def test_add_file(self, tmp_path, caplog):
-        """Test adding a file and verify auto-update creates symlink"""
+        """Test adding a file and verify auto-update mirrors to repo"""
         home, repo = self.setup_repo(tmp_path, '')
         test_file = home / '.testfile'
         test_file.write_text('test content')
@@ -241,9 +236,8 @@ class TestMain:
             content = f.read()
             assert '.testfile' in content
         
-        # Verify auto-update: file should be symlinked
-        assert (home / '.testfile').is_symlink()
-        # File will be in inferred category (testfile for .testfile), find it dynamically
+        assert (home / '.testfile').is_file()
+        assert not (home / '.testfile').is_symlink()
         filelist = content.strip().split('\n')
         for line in filelist:
             if '.testfile' in line:
@@ -264,9 +258,9 @@ class TestMain:
             content = f.read()
             assert '.testfile:test' in content
         
-        # Verify file is in correct category
         assert (repo / 'dotfiles' / 'plain' / 'test' / '.testfile').exists()
-        assert (home / '.testfile').is_symlink()
+        assert (home / '.testfile').is_file()
+        assert not (home / '.testfile').is_symlink()
 
     def test_add_file_dry_run(self, tmp_path, caplog):
         home, repo = self.setup_repo(tmp_path, '')
@@ -356,6 +350,7 @@ class TestMain:
         
         # Run update to complete sync
         assert main(args=['update', category], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', category], cwd=str(repo), home=str(home)) == 0
         assert (repo / 'dotfiles' / 'encrypt' / category / '.secret').exists()
         # Encrypted files are decrypted on restore (not symlinked)
         assert (home / '.secret').exists()
@@ -388,6 +383,7 @@ class TestMain:
         
         # Run update to sync (auto-update may have skipped due to password prompt)
         assert main(args=['update', category], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', category], cwd=str(repo), home=str(home)) == 0
         
         repo_file = repo / 'dotfiles' / 'encrypt' / category / '.secret'
         assert repo_file.exists()
@@ -491,14 +487,15 @@ class TestMain:
     # ------------------------------------------------------------------------------
 
     def test_unmanage_symlink(self, tmp_path, caplog):
-        """Test unmanaging a symlinked file"""
+        """Test unmanaging a mirrored file"""
         home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
         test_file = home / '.testfile'
         test_file.write_text('test content')
         
-        # Update to create symlink (specify test category)
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.testfile').is_symlink()
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert (home / '.testfile').is_file()
+        assert not (home / '.testfile').is_symlink()
         repo_file = repo / 'dotfiles' / 'plain' / 'test' / '.testfile'
         assert repo_file.exists()
         
@@ -527,10 +524,8 @@ class TestMain:
         test_file.write_text('repo content')
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.testfile').is_symlink()
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
         
-        # Remove symlink and create regular file with different content
-        os.remove(home / '.testfile')
         (home / '.testfile').write_text('home content')
         
         # User chooses overwrite (prompt format: [o] Overwrite, [k] Keep, [c] Cancel)
@@ -553,9 +548,8 @@ class TestMain:
         test_file.write_text('repo content')
         
         assert main(args=['update'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore'], cwd=str(repo), home=str(home)) == 0
         
-        # Remove symlink and create regular file
-        os.remove(home / '.testfile')
         (home / '.testfile').write_text('home content')
         
         # User chooses keep
@@ -586,7 +580,7 @@ class TestMain:
         monkeypatch.setattr('getpass.getpass', mock_getpass)
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        # Encrypted files are decrypted on restore (not symlinked)
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
         assert (home / '.secret').exists()
         assert not (home / '.secret').is_symlink()
         
@@ -614,17 +608,16 @@ class TestMain:
         test_file.write_text('test content')
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.testfile').is_symlink()
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
         
-        # Store initial state
         initial_filelist_content = (repo / 'filelist').read_text()
         
         assert main(args=['unmanage', '--dry-run', '-v', '.testfile'], 
                    cwd=str(repo), home=str(home)) == 0
         
         # In dry-run mode, no actual changes should occur
-        # File should still be symlink
-        assert (home / '.testfile').is_symlink()
+        assert (home / '.testfile').is_file()
+        assert not (home / '.testfile').is_symlink()
         # Still in filelist
         final_filelist_content = (repo / 'filelist').read_text()
         assert final_filelist_content == initial_filelist_content
@@ -638,8 +631,9 @@ class TestMain:
         (home / '.ssh' / 'config').write_text('host *')
         (home / '.ssh' / 'known_hosts').write_text('github.com ssh-ed25519 ...')
         assert main(args=['update', 'ssh'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.ssh' / 'config').is_symlink()
-        assert (home / '.ssh' / 'known_hosts').is_symlink()
+        assert main(args=['restore', 'ssh'], cwd=str(repo), home=str(home)) == 0
+        assert (home / '.ssh' / 'config').is_file()
+        assert (home / '.ssh' / 'known_hosts').is_file()
 
         assert main(args=['unmanage', '--non-interactive', '.ssh'], cwd=str(repo), home=str(home)) == 0
         flist_content = (repo / 'filelist').read_text()
@@ -680,14 +674,18 @@ class TestMain:
         (home / '.ssh' / 'config').write_text('host *')
         monkeypatch.setattr('builtins.input', lambda p=None: 'y')
         assert main(args=['update', 'ssh'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.existing').is_symlink()
+        assert main(args=['restore', 'ssh'], cwd=str(repo), home=str(home)) == 0
+        assert (home / '.existing').is_file()
+        assert not (home / '.existing').is_symlink()
         input_calls = []
         monkeypatch.setattr('builtins.input', lambda p=None: (input_calls.append(p) or 'y'))
         ret = main(args=['add', '.ssh'], cwd=str(repo), home=str(home))
         assert ret == 0
         assert '.ssh/config' in (repo / 'filelist').read_text()
-        assert (home / '.ssh' / 'config').is_symlink()
-        assert (home / '.existing').is_symlink()
+        assert (home / '.ssh' / 'config').is_file()
+        assert not (home / '.ssh' / 'config').is_symlink()
+        assert (home / '.existing').is_file()
+        assert not (home / '.existing').is_symlink()
 
     # ------------------------------------------------------------------------------
     # Additional tests for restore command
@@ -701,9 +699,6 @@ class TestMain:
         password = 'secret123'
         monkeypatch.setattr('getpass.getpass', lambda prompt=None: password)
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        os.remove(home / '.file1')
-        os.remove(home / '.secret1')
-        os.remove(home / '.secret2')
 
         import dotsync.plugins.encrypt
         _real = dotsync.plugins.encrypt.EncryptPlugin.remove
@@ -726,8 +721,6 @@ class TestMain:
         (home / '.secret').write_text('secret')
         monkeypatch.setattr('getpass.getpass', lambda prompt=None: 'secret123')
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        os.remove(home / '.file1')
-        os.remove(home / '.secret')
 
         import dotsync.plugins.encrypt
         _real = dotsync.plugins.encrypt.EncryptPlugin.remove
@@ -756,12 +749,7 @@ class TestMain:
         monkeypatch.setattr('getpass.getpass', mock_getpass)
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        # Encrypted files are decrypted on restore (not symlinked)
-        assert (home / '.secret').exists()
-        assert not (home / '.secret').is_symlink()
-        
-        # Remove decrypted file
-        os.remove(home / '.secret')
+        assert not (home / '.secret').exists()
         
         # Restore encrypted file (will decrypt again)
         assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
@@ -774,7 +762,6 @@ class TestMain:
         home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
         (home / '.testfile').write_text('repo content')
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        os.remove(home / '.testfile')
         (home / '.testfile').write_text('home content')
 
         def fail_input(p):
@@ -785,7 +772,8 @@ class TestMain:
         try:
             ret = main(args=['restore', '--non-interactive', '--conflict', 'overwrite', 'test'], cwd=str(repo), home=str(home))
             assert ret == 0
-            assert (home / '.testfile').is_symlink()
+            assert (home / '.testfile').is_file()
+            assert not (home / '.testfile').is_symlink()
         finally:
             builtins.input = orig
 
@@ -816,10 +804,8 @@ class TestMain:
         test_file.write_text('repo content')
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.testfile').is_symlink()
+        assert not (home / '.testfile').exists()
         
-        # Remove symlink and create regular file
-        os.remove(home / '.testfile')
         (home / '.testfile').write_text('home content')
         
         # User cancels
@@ -839,19 +825,12 @@ class TestMain:
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
         
-        # Remove repo file and symlink
-        os.remove(repo / 'dotfiles' / 'plain' / 'test' / '.testfile')
-        os.remove(home / '.testfile')
-        
-        # Create dangling symlink
-        os.symlink(repo / 'dotfiles' / 'plain' / 'test' / '.testfile', home / '.testfile')
-        
-        # Re-add file to repo
-        (repo / 'dotfiles' / 'plain' / 'test' / '.testfile').write_text('test content')
-        
-        # Restore should handle dangling symlink
+        os.symlink('/non/existent/path', home / '.testfile')
+        assert not (home / '.testfile').exists()
+
         assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.testfile').exists()
+        assert (home / '.testfile').is_file()
+        assert not (home / '.testfile').is_symlink()
 
     # ------------------------------------------------------------------------------
     # Additional tests for update command
@@ -872,7 +851,7 @@ class TestMain:
         monkeypatch.setattr('getpass.getpass', mock_getpass)
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        # Encrypted files are decrypted on restore (not symlinked)
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
         assert (home / '.secret').exists()
         assert not (home / '.secret').is_symlink()
         
@@ -905,15 +884,9 @@ class TestMain:
         
         assert main(args=['update', 'cat1', 'cat2'], cwd=str(repo), home=str(home)) == 0
         
-        # Should be in cat1 (master), cat2 should be symlink to cat1
         assert (repo / 'dotfiles' / 'plain' / 'cat1' / '.testfile').exists()
-        assert (repo / 'dotfiles' / 'plain' / 'cat2' / '.testfile').is_symlink()
-        assert (home / '.testfile').is_symlink()
-        
-        # Verify symlink points to master
-        import os
-        cat2_link = repo / 'dotfiles' / 'plain' / 'cat2' / '.testfile'
-        assert cat2_link.resolve() == (repo / 'dotfiles' / 'plain' / 'cat1' / '.testfile').resolve()
+        assert not (repo / 'dotfiles' / 'plain' / 'cat2' / '.testfile').exists()
+        assert not (home / '.testfile').exists()
 
     def test_update_conflict_resolution(self, tmp_path, monkeypatch):
         """Test update when multiple candidates exist"""
@@ -943,10 +916,10 @@ class TestMain:
         (home / '.file2').write_text('file2')
         
         assert main(args=['update', 'cat1', 'cat2'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.file1').is_symlink()
-        assert (home / '.file2').is_symlink()
+        assert main(args=['restore', 'cat1', 'cat2'], cwd=str(repo), home=str(home)) == 0
+        assert (home / '.file1').is_file()
+        assert (home / '.file2').is_file()
         
-        # Remove both
         os.remove(home / '.file1')
         os.remove(home / '.file2')
         
@@ -981,10 +954,8 @@ class TestMain:
         (home / '.file2').write_text('file2')
         
         assert main(args=['update', 'cat1', 'cat2'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.file1').is_symlink()
-        assert (home / '.file2').is_symlink()
+        assert main(args=['restore', 'cat1', 'cat2'], cwd=str(repo), home=str(home)) == 0
         
-        # Clean only cat1
         assert main(args=['clean', 'cat1'], cwd=str(repo), home=str(home)) == 0
         assert not (home / '.file1').exists()
         assert (home / '.file2').exists()
@@ -1036,9 +1007,8 @@ class TestMain:
         test_file.write_text('repo content')
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
         
-        # Remove symlink and create regular file
-        os.remove(home / '.testfile')
         (home / '.testfile').write_text('home content')
         
         # User cancels
@@ -1071,6 +1041,7 @@ class TestMain:
         test_file.write_text('repo content')
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
         
         # Remove symlink and create symlink to external file
         os.remove(home / '.testfile')
@@ -1151,52 +1122,49 @@ class TestMain:
         test_file.write_text('test content')
         
         assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.testfile').is_symlink()
-        
-        # File is already a symlink to repo, restore should skip
         assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert (home / '.testfile').is_symlink()
+        assert (home / '.testfile').is_file()
+        assert not (home / '.testfile').is_symlink()
+        
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert (home / '.testfile').is_file()
+        assert not (home / '.testfile').is_symlink()
 
     def test_update_hard_mode(self, tmp_path):
-        """Test update with --hard flag (copy instead of symlink)"""
+        """Test update with --hard flag mirrors to repo without keeping home copy"""
         home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
         test_file = home / '.testfile'
         test_file.write_text('test content')
         
         assert main(args=['update', '--hard', 'test'], cwd=str(repo), home=str(home)) == 0
         
-        # Should be a copy, not symlink
-        assert (home / '.testfile').exists()
-        assert not (home / '.testfile').is_symlink()
-        assert (home / '.testfile').read_text() == 'test content'
+        assert not (home / '.testfile').exists()
+        assert (repo / 'dotfiles' / 'plain' / 'test' / '.testfile').read_text() == 'test content'
 
     def test_restore_hard_mode(self, tmp_path):
-        """Test restore with --hard flag"""
+        """Test restore with --hard flag copies regular file"""
         home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
         test_file = home / '.testfile'
         test_file.write_text('test content')
         
-        assert main(args=['update', '--hard', 'test'], cwd=str(repo), home=str(home)) == 0
-        assert not (home / '.testfile').is_symlink()
+        assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert not (home / '.testfile').exists()
         
-        # Remove file
-        os.remove(home / '.testfile')
-        
-        # Restore with hard mode
         assert main(args=['restore', '--hard', 'test'], cwd=str(repo), home=str(home)) == 0
         assert (home / '.testfile').exists()
         assert not (home / '.testfile').is_symlink()
         assert (home / '.testfile').read_text() == 'test content'
 
     def test_clean_hard_mode(self, tmp_path):
-        """Test clean with --hard flag (should remove copied files)"""
+        """Test clean with --hard flag removes mirrored home copy"""
         home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
         test_file = home / '.testfile'
         test_file.write_text('test content')
         
-        assert main(args=['update', '--hard', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['update', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert main(args=['restore', 'test'], cwd=str(repo), home=str(home)) == 0
+        assert (home / '.testfile').is_file()
         assert not (home / '.testfile').is_symlink()
-        assert (home / '.testfile').exists()
         
         assert main(args=['clean', '--hard', 'test'], cwd=str(repo), home=str(home)) == 0
         assert not (home / '.testfile').exists()

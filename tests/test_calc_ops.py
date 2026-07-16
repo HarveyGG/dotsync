@@ -27,9 +27,8 @@ class TestCalcOps:
 
         assert (repo / 'cat1').is_dir()
         assert not (repo / 'cat1' / 'file').is_symlink()
-        assert (repo / 'cat2').is_dir()
-        assert (repo / 'cat2' / 'file').is_symlink()
-        assert (repo / 'cat2' / 'file').samefile(repo / 'cat1' / 'file')
+        assert (repo / 'cat1' / 'file').exists()
+        assert not (repo / 'cat2' / 'file').exists()
 
     def test_update_nomaster_slave(self, tmp_path):
         home, repo = self.setup_home_repo(tmp_path)
@@ -41,9 +40,8 @@ class TestCalcOps:
 
         assert (repo / 'cat1').is_dir()
         assert not (repo / 'cat1' / 'file').is_symlink()
-        assert (repo / 'cat2').is_dir()
-        assert (repo / 'cat2' / 'file').is_symlink()
-        assert (repo / 'cat2' / 'file').samefile(repo / 'cat1' / 'file')
+        assert (repo / 'cat1' / 'file').exists()
+        assert not (repo / 'cat2' / 'file').exists()
 
     def test_update_master_linkedslave(self, tmp_path):
         home, repo = self.setup_home_repo(tmp_path)
@@ -53,7 +51,10 @@ class TestCalcOps:
         os.symlink(Path('..') / 'cat1' / 'file', repo / 'cat2' / 'file')
 
         calc = CalcOps(repo, home, PlainPlugin(tmp_path / '.data'))
-        assert calc.update({'file': ['cat1', 'cat2']}).ops == []
+        calc.update({'file': ['cat1', 'cat2']}).apply()
+
+        assert (repo / 'cat1' / 'file').exists()
+        assert not (repo / 'cat2' / 'file').exists()
 
     def test_update_master_brokenlinkslave(self, tmp_path):
         home, repo = self.setup_home_repo(tmp_path)
@@ -67,9 +68,8 @@ class TestCalcOps:
 
         assert (repo / 'cat1').is_dir()
         assert not (repo / 'cat1' / 'file').is_symlink()
-        assert (repo / 'cat2').is_dir()
-        assert (repo / 'cat2' / 'file').is_symlink()
-        assert (repo / 'cat2' / 'file').samefile(repo / 'cat1' / 'file')
+        assert (repo / 'cat1' / 'file').exists()
+        assert not (repo / 'cat2' / 'file').exists()
 
     def test_update_home_nomaster_noslave(self, tmp_path):
         home, repo = self.setup_home_repo(tmp_path)
@@ -80,9 +80,8 @@ class TestCalcOps:
 
         assert (repo / 'cat1').is_dir()
         assert not (repo / 'cat1' / 'file').is_symlink()
-        assert (repo / 'cat2').is_dir()
-        assert (repo / 'cat2' / 'file').is_symlink()
-        assert (repo / 'cat2' / 'file').samefile(repo / 'cat1' / 'file')
+        assert (repo / 'cat1' / 'file').exists()
+        assert not (repo / 'cat2' / 'file').exists()
         assert not (home / 'file').exists()
 
     def test_update_linkedhome_master_noslave(self, tmp_path):
@@ -96,9 +95,8 @@ class TestCalcOps:
 
         assert (repo / 'cat1').is_dir()
         assert not (repo / 'cat1' / 'file').is_symlink()
-        assert (repo / 'cat2').is_dir()
-        assert (repo / 'cat2' / 'file').is_symlink()
-        assert (repo / 'cat2' / 'file').samefile(repo / 'cat1' / 'file')
+        assert (repo / 'cat1' / 'file').exists()
+        assert not (repo / 'cat2' / 'file').exists()
         assert (home / 'file').is_symlink()
         assert (home / 'file').samefile(repo / 'cat1' / 'file')
 
@@ -117,9 +115,8 @@ class TestCalcOps:
 
         calc.restore({'file': ['cat']}).apply()
 
-        assert (home / 'file').is_symlink()
-        assert (home / 'file').samefile(repo / 'cat' / 'file')
-        assert repo in (home / 'file').resolve().parents
+        assert (home / 'file').is_file()
+        assert not (home / 'file').is_symlink()
         assert (home / 'foo').exists()
         assert not (home / 'foo').is_symlink()
 
@@ -135,12 +132,10 @@ class TestCalcOps:
 
         assert (repo / 'cat1').is_dir()
         assert not (repo / 'cat1' / 'file').is_symlink()
-        assert (repo / 'cat2').is_dir()
-        assert (repo / 'cat2' / 'file').is_symlink()
-        assert (repo / 'cat2' / 'file').samefile(repo / 'cat1' / 'file')
-        assert (repo / 'cat3').is_dir()
-        assert (repo / 'cat3' / 'file').is_symlink()
-        assert (repo / 'cat3' / 'file').samefile(repo / 'cat1' / 'file')
+        assert (repo / 'cat1' / 'file').exists()
+        assert (repo / 'cat1' / 'file').exists()
+        assert not (repo / 'cat2' / 'file').exists()
+        assert not (repo / 'cat3' / 'file').exists()
 
     def test_update_multiple_candidates(self, tmp_path, monkeypatch):
         home, repo = self.setup_home_repo(tmp_path)
@@ -156,9 +151,8 @@ class TestCalcOps:
         calc = CalcOps(repo, home, PlainPlugin(tmp_path / '.data'))
         calc.update({'file': ['cat1', 'cat2']}).apply()
 
-        assert (repo / 'cat1' / 'file').exists()
-        assert not (repo / 'cat1' / 'file').is_symlink()
-        assert (repo / 'cat2' / 'file').is_symlink()
+        assert (repo / 'cat1' / 'file').read_text() in ('file1', 'file2')
+        assert not (repo / 'cat2' / 'file').exists()
 
     def test_update_multiple_candidates_non_interactive_prefer_master(self, tmp_path):
         from dotsync.policy import RunPolicy
@@ -181,7 +175,7 @@ class TestCalcOps:
             builtins.input = orig
 
         assert (repo / 'cat1' / 'file').read_text() == 'file1'
-        assert (repo / 'cat2' / 'file').is_symlink()
+        assert not (repo / 'cat2' / 'file').exists()
 
     def test_restore_conflict_non_interactive_overwrite(self, tmp_path):
         from dotsync.policy import RunPolicy
@@ -202,8 +196,8 @@ class TestCalcOps:
         finally:
             builtins.input = orig
 
-        assert (home / 'file').is_symlink()
-        assert (home / 'file').samefile(repo / 'cat1' / 'file')
+        assert (home / 'file').is_file()
+        assert not (home / 'file').is_symlink()
 
     def test_restore_nomaster_nohome(self, tmp_path, caplog):
         home, repo = self.setup_home_repo(tmp_path)
@@ -224,6 +218,17 @@ class TestCalcOps:
         assert 'unable to find "file" in repo, skipping' in caplog.text
         assert (home / 'file').is_file()
 
+    def test_restore_does_not_create_symlink_in_home(self, tmp_path):
+        home, repo = self.setup_home_repo(tmp_path)
+        open(home / 'file', 'w').close()
+
+        calc = CalcOps(repo, home, PlainPlugin(tmp_path / '.data'))
+        calc.update({'file': ['cat1', 'cat2']}).apply()
+        calc.restore({'file': ['cat1', 'cat2']}).apply()
+
+        assert (home / 'file').is_file()
+        assert not (home / 'file').is_symlink()
+
     def test_restore_master_nohome(self, tmp_path):
         home, repo = self.setup_home_repo(tmp_path)
         os.makedirs(repo / 'cat1')
@@ -233,8 +238,7 @@ class TestCalcOps:
         calc.restore({'file': ['cat1', 'cat2']}).apply()
 
         assert (home / 'file').is_file()
-        assert (home / 'file').is_symlink()
-        assert (home / 'file').samefile(repo / 'cat1' / 'file')
+        assert not (home / 'file').is_symlink()
         assert not (repo / 'cat1' / 'file').is_symlink()
 
     def test_restore_master_linkedhome(self, tmp_path):
@@ -259,8 +263,7 @@ class TestCalcOps:
         calc.restore({'file': ['cat1', 'cat2']}).apply()
 
         assert (home / 'file').is_file()
-        assert (home / 'file').is_symlink()
-        assert (home / 'file').samefile(repo / 'cat1' / 'file')
+        assert not (home / 'file').is_symlink()
         assert not (repo / 'cat1' / 'file').is_symlink()
 
     def test_restore_master_home_noreplace(self, tmp_path, monkeypatch):
@@ -290,7 +293,8 @@ class TestCalcOps:
         calc = CalcOps(repo, home, PlainPlugin(tmp_path / '.data'))
         calc.restore({'foo': ['cat']}).apply()
 
-        assert (home / 'foo').is_symlink()
+        assert (home / 'foo').is_file()
+        assert not (home / 'foo').is_symlink()
         assert (home / 'foo').exists()
 
     def test_clean_nohome(self, tmp_path):
@@ -337,8 +341,7 @@ class TestCalcOps:
         calc = CalcOps(repo, home, PlainPlugin(tmp_path / '.data'))
         calc.clean({'file': ['cat1', 'cat2']}).apply()
 
-        assert (home / 'file').is_file()
-        assert not (home / 'file').is_symlink()
+        assert not (home / 'file').exists()
         assert (repo / 'cat1' / 'file').is_file()
 
     def test_clean_norepo_filehome(self, tmp_path):
@@ -372,9 +375,7 @@ class TestCalcOps:
         calc = CalcOps(repo, home, PlainPlugin(tmp_path / '.data', hard=True))
         calc.clean({'file': ['cat1', 'cat2']}).apply()
 
-        # shouldn't remove symlinks since they are not hard-copied files from
-        # the repo
-        assert (home / 'file').is_file()
+        assert not (home / 'file').exists()
         assert (repo / 'cat1' / 'file').is_file()
 
     def test_clean_hard_filehome(self, tmp_path):

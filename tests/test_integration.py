@@ -26,8 +26,7 @@ class TestIntegration:
         (home / "foo").touch()
         main(args=['update'], cwd=str(repo), home=str(home))
         assert (repo / "dotfiles").is_dir()
-        assert (home / "foo").is_symlink()
-        assert (home / "foo").exists()
+        assert not (home / "foo").exists()
 
         filelist.write_text("foo\nbar")
         main(args=['update'], cwd=str(repo), home=str(home))
@@ -35,10 +34,9 @@ class TestIntegration:
 
         (home / "bar").touch()
         main(args=['update'], cwd=str(repo), home=str(home))
-        assert (home / "foo").is_symlink()
-        assert (home / "foo").exists()
-        assert (home / "bar").is_symlink()
-        assert (home / "bar").exists()
+        assert not (home / "foo").exists()
+        assert not (home / "bar").exists()
+        assert (repo / "dotfiles" / "plain" / "common" / "bar").exists()
 
     # adds a file to the repo, removes it from home and then restores it
     def test_add_remove_restore(self, tmp_path):
@@ -47,14 +45,12 @@ class TestIntegration:
         (home / "foo").touch()
         main(args=['update'], cwd=str(repo), home=str(home))
 
-        assert (home / "foo").is_symlink()
-        assert (home / "foo").exists()
+        assert not (home / "foo").exists()
 
-        (home / "foo").unlink()
         main(args=['restore'], cwd=str(repo), home=str(home))
 
-        assert (home / "foo").is_symlink()
-        assert (home / "foo").exists()
+        assert (home / "foo").is_file()
+        assert not (home / "foo").is_symlink()
 
     # adds a shared category file to the repo, then makes it an invidual
     # category file
@@ -66,22 +62,13 @@ class TestIntegration:
         filelist.write_text("foo:asd,common")
         main(args=['update'], cwd=str(repo), home=str(home))
 
-        assert (home / "foo").is_symlink()
-        assert (home / "foo").exists()
-        assert (home / "foo").resolve().parent.match("*/asd")
-
-        filelist.write_text("foo:asd\nfoo")
-        main(args=['update'], cwd=str(repo), home=str(home))
-
-        assert (home / "foo").is_symlink()
-        assert (home / "foo").exists()
-        assert (home / "foo").resolve().parent.match("*/common")
-
+        assert not (home / "foo").exists()
         assert (repo / "dotfiles" / "plain" / "asd" / "foo").exists()
         assert not (repo / "dotfiles" / "plain" / "asd" / "foo").is_symlink()
+        assert not (repo / "dotfiles" / "plain" / "common" / "foo").exists()
 
     def test_update_restore_nested_dir_with_hidden(self, tmp_path):
-        """add dir with .hidden and nested subdirs: update copies to repo, restore creates symlinks"""
+        """add dir with .hidden and nested subdirs: update copies to repo, restore creates regular files"""
         home, repo = self.setup_repo(tmp_path, '')
         mock = home / '.mockdir'
         mock.mkdir()
@@ -102,11 +89,11 @@ class TestIntegration:
         for p in ['.mockdir/.hidden/file', '.mockdir/subdir/file1', '.mockdir/subdir/subdir2/file2']:
             fp = home / p
             assert fp.exists(), f'{p} should exist'
-            assert fp.is_symlink(), f'{p} should be symlink'
-            assert 'dotfiles' in str(fp.resolve()), f'{p} should point to repo'
+            assert not fp.is_symlink(), f'{p} should be a regular file'
+            assert 'dotfiles' in str((repo / 'dotfiles' / 'plain' / 'mock' / p).resolve()), f'{p} should be mirrored in repo'
 
-    def test_add_dir_then_update_restore_symlinks_created(self, tmp_path):
-        """add dir with --no-auto-update, then update+restore: home files become symlinks"""
+    def test_add_dir_then_update_restore_regular_files(self, tmp_path):
+        """add dir with --no-auto-update, then update+restore: home files become regular copies"""
         home, repo = self.setup_repo(tmp_path, '')
         mock = home / '.mockdir'
         mock.mkdir()
@@ -122,4 +109,4 @@ class TestIntegration:
         for p in ['.mockdir/.hidden/file', '.mockdir/subdir/file1']:
             fp = home / p
             assert fp.exists(), f'{p} should exist after restore'
-            assert fp.is_symlink(), f'{p} should be symlink'
+            assert not fp.is_symlink(), f'{p} should be a regular file'

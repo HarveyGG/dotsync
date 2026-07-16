@@ -903,7 +903,6 @@ def update_files(repo, filelist, manifest, plugins, plugin_dirs, home, args):
 
         try:
             calc_ops.update(flist).apply(args.dry_run, keep_going=policy.keep_going)
-            calc_ops.restore(flist).apply(args.dry_run, keep_going=policy.keep_going)
         except BatchApplyError as e:
             for op_str, err in e.errors:
                 logging.error(f'{op_str}: {err}')
