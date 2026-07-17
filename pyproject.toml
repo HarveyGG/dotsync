@@ -84,5 +84,6 @@ dev-dependencies = [
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
     "ruff>=0.8.0",
+    "pexpect>=4.9.0",
 ]
 

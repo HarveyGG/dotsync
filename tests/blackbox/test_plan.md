@@ -1145,3 +1145,21 @@ dotsync save --non-interactive common
 6. **Harness risks:** Closed stdin → `EOFError` on unexpected prompts; git stderr not captured; non-interactive restore over differing files requires `--conflict overwrite`.
 
 **Review feedback:** Merged — see scenarios S6, B6, L5 and updated sandbox conventions above.
+
+---
+
+## Harness completion review (2026-07-16)
+
+**Reviewer:** Opus 4.8 (blackbox-harness-complete T0)
+
+### Key findings (implementation plan)
+
+1. **No TwoMachineSandbox** — existing `Sandbox` + `home2` already covers dual-machine; thin helpers only.
+2. **DEVNULL stdin default** — `run_dotsync` must default to closed stdin so C3/B6 non-prompt assertions are meaningful.
+3. **`unset_repo` for L4** — pop `DOTSYNC_REPO` so track bootstraps default `~/.dotfiles`.
+4. **No hostname env pin** — `info.hostname` is import-time; always pass explicit categories.
+5. **S6 bug note stale** — save/restore both use `dotsync_repo` for `.dotsync/materialized/`; treat as round-trip assertion.
+6. **E1 pexpect; E2/E3 seed passwd file** — no pexpect for showpw tests.
+7. **Docker deferred** — home2 satisfies dual-machine; Docker optional non-gating follow-up.
+
+**Plan:** `.vibe/dotsync-cli/.spec/blackbox-harness-complete/IMPLEMENTATION_PLAN.md`

@@ -62,12 +62,22 @@ class Sandbox:
         )
         return env
 
-    def env_for(self, *, home: Optional[Path] = None, repo: Optional[Path] = None) -> dict:
+    def env_for(
+        self,
+        *,
+        home: Optional[Path] = None,
+        repo: Optional[Path] = None,
+        unset_repo: bool = False,
+    ) -> dict:
         h = home or self.home
         r = repo or self.repo
         if h == self.home and r == self.repo:
-            return dict(self._env)
-        return self._base_env(home=h, repo=r)
+            env = dict(self._env)
+        else:
+            env = self._base_env(home=h, repo=r)
+        if unset_repo:
+            env.pop("DOTSYNC_REPO", None)
+        return env
 
     def init_bare_remote(self) -> Path:
         self.bare = self.root / "bare.git"
@@ -94,20 +104,24 @@ class Sandbox:
         stdin: Optional[str] = None,
         timeout: float = 120,
         extra_env: Optional[dict] = None,
+        unset_repo: bool = False,
     ) -> DotsyncResult:
         cmd = ["uv", "run", "dotsync", *args]
-        env = self.env_for(home=home, repo=repo)
+        env = self.env_for(home=home, repo=repo, unset_repo=unset_repo)
         if extra_env:
             env.update(extra_env)
-        proc = subprocess.run(
-            cmd,
-            cwd=str(cwd or home or self.home),
-            env=env,
-            input=stdin,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-        )
+        run_kwargs = {
+            "cwd": str(cwd or home or self.home),
+            "env": env,
+            "text": True,
+            "capture_output": True,
+            "timeout": timeout,
+        }
+        if stdin is not None:
+            run_kwargs["input"] = stdin
+        else:
+            run_kwargs["stdin"] = subprocess.DEVNULL
+        proc = subprocess.run(cmd, **run_kwargs)
         result = DotsyncResult(
             returncode=proc.returncode,
             stdout=proc.stdout,
@@ -199,6 +213,37 @@ class Sandbox:
             args.extend(["--conflict", conflict])
         args.extend(extra_args)
         return self.run_dotsync(*args, **kwargs)
+
+    def restore_fresh(
+        self,
+        home: Path,
+        *categories: str,
+        conflict: str = "overwrite",
+        extra_args: Sequence[str] = (),
+        **kwargs,
+    ) -> DotsyncResult:
+        """Restore onto a fresh HOME (e.g. home2) from bare remote."""
+        if self.bare is None:
+            raise ValueError("bare remote not initialized; call init_bare_remote() first")
+        home_repo = home / ".dotfiles"
+        args: List[str] = [
+            "restore",
+            "--remote",
+            self.bare_url(),
+            "--categories",
+            ",".join(categories),
+            "--yes",
+        ]
+        if conflict:
+            args.extend(["--conflict", conflict])
+        args.extend(extra_args)
+        return self.run_dotsync(
+            *args,
+            cwd=home,
+            home=home,
+            repo=home_repo,
+            **kwargs,
+        )
 
     def assert_isolated(self) -> None:
         """Fail if anything outside the sandbox root was modified."""
