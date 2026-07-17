@@ -1,4 +1,4 @@
-"""Black-box tree scenarios T2, T4 from tests/blackbox/test_plan.md."""
+"""Black-box tree scenarios T2–T4 from tests/blackbox/test_plan.md."""
 
 from __future__ import annotations
 
@@ -31,6 +31,39 @@ def test_t2_glob_filter_on_tree_excludes_non_matching_paths(sandbox_factory):
     assert not sb.mirror_path("tools", ".agents/skills/other-module/SKILL.md").exists()
     tools_mirror_root = sb.repo / "dotfiles" / "plain" / "tools"
     assert not any("node_modules" in str(p) for p in tools_mirror_root.rglob("*"))
+
+
+def test_t3_prune_stale_repo_file_after_tree_member_removed(sandbox_factory):
+    """T3: removing tree member prunes stale mirror after interactive confirm."""
+    sb = sandbox_factory()
+    sb.init_repo("@tree:.config/myapp:editor\n")
+    app = sb.home / ".config" / "myapp"
+    app.mkdir(parents=True)
+    (app / "settings.json").write_text('{"key": "value"}\n')
+    (app / "old.json").write_text('{"stale": true}\n')
+
+    assert sb.save_no_push("editor").returncode == 0
+
+    old_mirror = sb.mirror_path("editor", ".config/myapp/old.json")
+    settings_mirror = sb.mirror_path("editor", ".config/myapp/settings.json")
+    assert old_mirror.exists()
+    assert settings_mirror.exists()
+
+    (app / "old.json").unlink()
+
+    result = sb.run_dotsync("save", "--no-push", "editor", stdin="n\n")
+    assert result.returncode == 1, result.combined
+    assert "no longer in the manifest" in result.combined
+    assert "old.json" in result.combined
+    assert old_mirror.exists()
+
+    result = sb.run_dotsync(
+        "save", "--no-push", "--yes", "--non-interactive", "editor"
+    )
+    assert result.returncode == 0, result.combined
+    assert "no longer in the manifest" not in result.combined
+    assert not old_mirror.exists()
+    assert settings_mirror.exists()
 
 
 def test_t4_tree_save_restore_roundtrip_on_clean_home(sandbox_factory):
