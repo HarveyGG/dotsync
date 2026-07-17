@@ -195,11 +195,7 @@ def test_s1_internal_symlink_materialized(sandbox_factory):
 
 
 def test_s6_external_symlink_save_restore_roundtrip(sandbox_factory):
-    """S6: external symlink save→restore round-trip (SC3).
-
-    Known product risk: materialized bytes may live under plugin_dir while
-    restore reads dotsync_repo/.dotsync/materialized/.
-    """
+    """S6: external symlink save→restore round-trip (SC3)."""
     sb = sandbox_factory()
     external = sb.root / "external"
     external.mkdir()
@@ -213,26 +209,16 @@ def test_s6_external_symlink_save_restore_roundtrip(sandbox_factory):
     assert sb.save_no_push("tools").returncode == 0
 
     materialized_dir = sb.repo / ".dotsync" / "materialized"
-    plugin_materialized = sb.repo / "dotfiles" / "plain" / ".dotsync" / "materialized"
-    has_repo_materialized = any(materialized_dir.rglob("*")) if materialized_dir.exists() else False
-    has_plugin_materialized = (
-        any(plugin_materialized.rglob("*")) if plugin_materialized.exists() else False
-    )
-    assert has_repo_materialized or has_plugin_materialized, (
-        "expected materialized external content under repo or plugin_dir"
-    )
+    assert materialized_dir.exists()
+    materialized_files = [p for p in materialized_dir.rglob("*") if p.is_file()]
+    assert any(p.read_text() == "external-data" for p in materialized_files)
 
     shutil.rmtree(app)
     result = sb.restore("tools", skip_pull=True, conflict="overwrite")
     link_cfg = sb.home / ".config" / "app" / "link.cfg"
 
-    if result.returncode != 0 or not link_cfg.exists():
-        pytest.fail(
-            "S6 product bug: external symlink restore failed — save writes materialized "
-            f"content under plugin_dir but restore_symlinks reads dotsync_repo/.dotsync/materialized/. "
-            f"returncode={result.returncode} combined={result.combined!r} "
-            f"link_exists={link_cfg.exists()}"
-        )
+    assert result.returncode == 0, result.combined
+    assert link_cfg.exists()
     assert link_cfg.read_text() == "external-data"
     assert not link_cfg.is_symlink()
 

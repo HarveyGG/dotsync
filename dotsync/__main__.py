@@ -1158,8 +1158,8 @@ def update_files(repo, filelist_obj, active_filelist, manifest, plugins, plugin_
             logging.info('Prune cancelled')
             return 1
 
-        clean_ops.append(calc_ops.clean_repo(manifest[plugin]))
-        plugins[plugin].clean_data(manifest[plugin])
+        clean_ops.append(calc_ops.clean_repo(manifest.get(plugin, [])))
+        plugins[plugin].clean_data(manifest.get(plugin, []))
 
     for clean_op in clean_ops:
         try:
