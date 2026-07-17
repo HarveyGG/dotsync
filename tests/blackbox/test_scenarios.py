@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -238,63 +237,3 @@ def test_b6_non_interactive_save_without_remote_does_not_hang(sandbox_factory):
     assert result.returncode != 0
     assert "successfully pushed" not in result.combined.lower()
 
-
-# ---------------------------------------------------------------------------
-# Encrypt (optional — requires gpg)
-# ---------------------------------------------------------------------------
-
-
-def _gpg_available() -> bool:
-    try:
-        subprocess.run(["gpg", "--version"], capture_output=True, check=True)
-        return True
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return False
-
-
-def _encrypt_writes_only_under_repo_plugins(sb) -> bool:
-    plugins_root = sb.repo / ".plugins"
-    allowed = plugins_root.resolve()
-    for path in plugins_root.rglob("*"):
-        if path.is_file():
-            try:
-                path.resolve().relative_to(allowed)
-            except ValueError:
-                return False
-    return True
-
-
-@pytest.mark.skipif(
-    not _gpg_available(),
-    reason="gpg not available",
-)
-@pytest.mark.skip(
-    reason="encrypt passwd uses getpass (TTY); not automatable via subprocess stdin alone",
-)
-def test_e1_encrypt_track_save_restore_roundtrip(sandbox_factory):
-    """E1: track --encrypt → save → restore round-trip (SC3)."""
-    sb = sandbox_factory()
-    sb.init_repo("")
-    sb.write_home(".secret", "plaintext secret\n")
-
-    passwd_in = "testpass123\ntestpass123\n"
-    result = sb.run_dotsync("passwd", stdin=passwd_in)
-    assert result.returncode == 0, result.combined
-    assert _encrypt_writes_only_under_repo_plugins(sb)
-
-    assert sb.run_dotsync("track", "--encrypt", ".secret", "private").returncode == 0
-    assert sb.save_no_push("private").returncode == 0
-
-    encrypted = sb.repo / "dotfiles" / "encrypt" / "private" / ".secret"
-    assert encrypted.exists()
-    assert encrypted.read_text() != "plaintext secret\n"
-
-    (sb.home / ".secret").unlink()
-    restore_in = "testpass123\n"
-    result = sb.restore("private", skip_pull=True, conflict="overwrite", stdin=restore_in)
-    assert result.returncode == 0, result.combined
-
-    restored = sb.home / ".secret"
-    assert restored.exists()
-    assert not restored.is_symlink()
-    assert restored.read_text() == "plaintext secret\n"
