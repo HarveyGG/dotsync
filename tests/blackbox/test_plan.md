@@ -1163,3 +1163,49 @@ dotsync save --non-interactive common
 7. **Docker deferred** — home2 satisfies dual-machine; Docker optional non-gating follow-up.
 
 **Plan:** `.vibe/dotsync-cli/.spec/blackbox-harness-complete/IMPLEMENTATION_PLAN.md`
+
+---
+
+## Implementation status
+
+| Scenario | Test function | Module | Status |
+|----------|---------------|--------|--------|
+| L1 | `test_l1_full_lifecycle_track_save_restore` | `test_scenarios.py` | ✅ Pass |
+| L2 | `test_l2_untrack_preserves_home_file` | `test_lifecycle.py` | ✅ Pass |
+| L3 | `test_l3_untrack_purge_repo_deletes_mirror` | `test_lifecycle.py` | ✅ Pass |
+| L4 | `test_l4_track_bootstraps_dotfiles` | `test_lifecycle.py` | ✅ Pass |
+| L5 (auto-update on) | `test_l5_track_auto_update_creates_mirror_immediately` | `test_lifecycle.py` | ✅ Pass |
+| L5 (`--no-auto-update`) | `test_l5_track_no_auto_update_defers_mirror_until_save` | `test_lifecycle.py` | ✅ Pass |
+| M1 | `test_m1_home_never_becomes_repo_symlink` | `test_scenarios.py` | ✅ Pass |
+| M2 | `test_m2_byte_identical_round_trip_atomic_file` | `test_mirror.py` | ✅ Pass |
+| M3 | `test_m3_nested_tree_paths_restore_as_regular_files` | `test_mirror.py` | ✅ Pass |
+| RP1 | `test_rp1_pull_runs_before_home_copy` | `test_scenarios.py` | ✅ Pass |
+| RP2 | `test_rp2_diverged_repo_aborts_restore` | `test_scenarios.py` | ✅ Pass |
+| RP3 | `test_rp3_skip_pull_uses_local_head_without_fetch` | `test_restore_pull.py` | ✅ Pass |
+| RP4 | `test_rp4_no_remote_restore_uses_local_head` | `test_restore_pull.py` | ✅ Pass |
+| C1 | `test_c1_unified_diff_cancel_aborts_entire_restore` | `test_scenarios.py` | ✅ Pass |
+| C2 | `test_c2_overwrite_continues_restore_for_remaining_paths` | `test_conflicts.py` | ✅ Pass |
+| C3 | `test_c3_identical_home_file_skipped_without_prompt` | `test_conflicts.py` | ✅ Pass |
+| C4 | `test_c4_non_interactive_conflict_overwrite_applies_all` | `test_conflicts.py` | ✅ Pass |
+| C5 | `test_c5_non_interactive_conflict_abort_exits_without_writes` | `test_conflicts.py` | ✅ Pass |
+| T1 | `test_t1_new_tree_file_picked_up_on_second_save` | `test_scenarios.py` | ✅ Pass |
+| T2 | `test_t2_glob_filter_on_tree_excludes_non_matching_paths` | `test_trees.py` | ✅ Pass |
+| T3 | `test_t3_prune_stale_repo_file_after_tree_member_removed` | `test_trees.py` | ✅ Pass |
+| T4 | `test_t4_tree_save_restore_roundtrip_on_clean_home` | `test_trees.py` | ✅ Pass |
+| S1 | `test_s1_internal_symlink_materialized` | `test_scenarios.py` | ✅ Pass |
+| S2 | `test_s2_external_symlink_materialized_under_dotsync_materialized` | `test_symlinks.py` | ✅ Pass |
+| S3 | `test_s3_broken_symlink_warn_and_skip` | `test_symlinks.py` | ✅ Pass |
+| S4 | `test_s4_dedup_when_link_target_also_watched` | `test_symlinks.py` | ✅ Pass |
+| S5 | `test_s5_restore_recreates_internal_symlink_when_target_exists` | `test_symlinks.py` | ✅ Pass |
+| S6 | `test_s6_external_symlink_save_restore_roundtrip` | `test_scenarios.py` | ✅ Pass |
+| E1 | `test_e1_encrypt_track_save_restore_roundtrip` | `test_encrypt.py` | ✅ Pass |
+| E2 | `test_e2_showpw_prints_stored_password` | `test_encrypt.py` | ✅ Pass |
+| E3 | `test_e3_showpw_exits_nonzero_when_no_passwd` | `test_encrypt.py` | ✅ Pass |
+| B1 | `test_b1_empty_filelist_save_succeeds_with_no_file_ops` | `test_boundaries.py` | ✅ Pass |
+| B2 | `test_b2_decline_remote_url_aborts_save` | `test_boundaries.py` | ✅ Pass |
+| B3 | `test_b3_push_failure_exits_nonzero` | `test_boundaries.py` | ✅ Pass |
+| B4 | `test_b4_binary_conflict_shows_summary_and_cancel` | `test_boundaries.py` | ✅ Pass |
+| B5 | `test_b5_no_push_prints_durability_warning` | `test_boundaries.py` | ✅ Pass |
+| B6 | `test_b6_non_interactive_save_without_remote_does_not_hang` | `test_scenarios.py` | ✅ Pass |
+
+**Summary:** 36 scenario IDs → 37 pytest functions (L5 split into auto-update on/off variants). Last verified: 2026-07-16.

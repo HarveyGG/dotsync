@@ -203,6 +203,14 @@ uv sync
 uv run pytest tests/
 ```
 
+### Black-box E2E tests
+
+End-to-end scenarios invoke the real `dotsync` CLI in an isolated sandbox (`$HOME` and `DOTSYNC_REPO` confined to temporary directories). See [tests/blackbox/test_plan.md](tests/blackbox/test_plan.md) for the full scenario catalog.
+
+```bash
+uv run pytest tests/blackbox/ -v
+```
+
 ## 📝 License
 
 This project is licensed under a Non-Commercial License. See the [LICENSE](LICENSE) file for details.
