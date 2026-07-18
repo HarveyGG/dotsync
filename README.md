@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![dotsync](https://img.shields.io/badge/dotsync-2.0.0-blue)
+![dotsync](https://img.shields.io/badge/dotsync-2.0.2-blue)
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-Non--Commercial-blue.svg)
@@ -100,6 +100,7 @@ See [docs/v2 migration guide](https://dotsync.readthedocs.io/en/latest/v2_migrat
 | `dotsync track <path> [category] [--encrypt]` | Add a path to the watch list; bootstraps repo on first use |
 | `dotsync untrack <path> [--purge-repo]` | Stop watching; optionally delete mirror copy in repo |
 | `dotsync list [categories]` | List watched paths, categories, encrypt flag, tree vs file |
+| `dotsync list --top-level` | Same as `list`, but group by first-level path root (e.g. one row for `.cursor`) |
 | `dotsync categories` | Show host groups and category definitions from filelist |
 | `dotsync save [categories] [-m msg] [--dry-run] [--no-push]` | Walk `@tree` entries → mirror home → repo → commit → **push** |
 | `dotsync restore [categories] [--dry-run]` | Pull latest repo, then copy repo → home (diff on conflict) |
@@ -205,11 +206,58 @@ uv run pytest tests/
 
 ### Black-box E2E tests
 
-End-to-end scenarios invoke the real `dotsync` CLI in an isolated sandbox (`$HOME` and `DOTSYNC_REPO` confined to temporary directories). See [tests/blackbox/test_plan.md](tests/blackbox/test_plan.md) for the full scenario catalog.
+End-to-end scenarios invoke the real `dotsync` CLI in an isolated sandbox (`$HOME` and `DOTSYNC_REPO` confined to temporary directories). **37 black-box tests** cover **36 scenario IDs** below; together with unit/integration tests the full suite is **287 tests** (verified on release **v2.0.2**).
 
 ```bash
-uv run pytest tests/blackbox/ -v
+uv run pytest tests/blackbox/ -v      # E2E only
+uv run pytest tests/ -v               # full suite
 ```
+
+#### Supported scenarios (all passing)
+
+| ID | Area | What it verifies | Status |
+|----|------|------------------|--------|
+| **L1** | Lifecycle | Full flow: `track` → `save` (push) → `restore` on a fresh machine | ✅ |
+| **L2** | Lifecycle | `untrack` removes path from filelist; home file kept; mirror kept | ✅ |
+| **L3** | Lifecycle | `untrack --purge-repo` deletes mirror; home file kept | ✅ |
+| **L4** | Lifecycle | `track` bootstraps `~/.dotfiles` when no repo exists | ✅ |
+| **L5a** | Lifecycle | Default `track` mirrors to repo immediately (auto-update) | ✅ |
+| **L5b** | Lifecycle | `track --no-auto-update` defers mirror until `save` | ✅ |
+| **M1** | Mirror | After save + restore, home paths stay **regular files**, not symlinks into repo | ✅ |
+| **M2** | Mirror | Atomic file round-trip preserves byte-identical content | ✅ |
+| **M3** | Mirror | Nested atomic paths restore as regular files, not symlinks | ✅ |
+| **RP1** | Restore / pull | `restore` pulls remote HEAD **before** copying to home | ✅ |
+| **RP2** | Restore / pull | Diverged local vs remote aborts restore with no home writes | ✅ |
+| **RP3** | Restore / pull | `--skip-pull` uses stale local HEAD (unsafe path documented) | ✅ |
+| **RP4** | Restore / pull | No `origin` remote: restore uses local HEAD | ✅ |
+| **C1** | Conflicts | Unified diff shown; cancel aborts **entire** restore | ✅ |
+| **C2** | Conflicts | Overwrite on first conflict continues restore for remaining paths | ✅ |
+| **C3** | Conflicts | Identical home file skipped without prompting | ✅ |
+| **C4** | Conflicts | `--conflict overwrite --non-interactive` applies all overwrites | ✅ |
+| **C5** | Conflicts | `--conflict abort --non-interactive` exits without home writes | ✅ |
+| **T1** | `@tree` | New file under watched tree picked up on second `save` | ✅ |
+| **T2** | `@tree` | Glob `@tree` pattern excludes non-matching paths (e.g. `node_modules`) | ✅ |
+| **T3** | `@tree` | Removing tree member prunes stale mirror from repo | ✅ |
+| **T4** | `@tree` | `@tree` save → push → restore round-trip on clean home | ✅ |
+| **S1** | Symlinks | Internal symlink inside tree materialized with manifest sidecar | ✅ |
+| **S2** | Symlinks | External symlink content stored under `.dotsync/materialized/` | ✅ |
+| **S3** | Symlinks | Broken symlink warns and skips; no corrupt mirror artifact | ✅ |
+| **S4** | Symlinks | Dedup when symlink target is also watched in the same tree | ✅ |
+| **S5** | Symlinks | Restore recreates internal user symlink when target exists | ✅ |
+| **S6** | Symlinks | External symlink save → restore round-trip on fresh home | ✅ |
+| **E1** | Encrypt | `track --encrypt` → `save` → `restore` round-trip (GPG + password) | ✅ |
+| **E2** | Encrypt | `showpw` prints stored encryption password (local only) | ✅ |
+| **E3** | Encrypt | `showpw` exits non-zero when no password configured | ✅ |
+| **B1** | Boundaries | Empty filelist: `save` succeeds with no file operations | ✅ |
+| **B2** | Boundaries | Declining remote URL prompt aborts `save` | ✅ |
+| **B3** | Boundaries | Push to invalid remote exits non-zero | ✅ |
+| **B4** | Boundaries | Binary conflict shows summary; cancel leaves home unchanged | ✅ |
+| **B5** | Boundaries | `--no-push` prints durability warning | ✅ |
+| **B6** | Boundaries | `save --non-interactive` without remote exits quickly (no hang) | ✅ |
+
+**Capability map:** mirror-only home files (M), git push/pull safety (RP), conflict handling (C), dynamic `@tree` directories (T), symlink materialization (S), encryption (E), CLI edge cases (B), and end-to-end multi-machine setup (L).
+
+Detailed step-by-step commands and assertions: [tests/blackbox/test_plan.md](tests/blackbox/test_plan.md).
 
 ## 📝 License
 
