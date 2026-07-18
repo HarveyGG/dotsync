@@ -121,8 +121,9 @@ class Arguments:
         parser.add_argument('-m', '--message', dest='commit_message',
                             default=None,
                             help='commit message for save command')
+        parser.add_argument('--top-level', action='store_true',
+                            help='for list: show one row per first-level path root')
 
-        # parse args
         args = parser.parse_args(args)
         
         # For init action, category[0] is optional directory path
@@ -190,6 +191,7 @@ class Arguments:
         self.no_push = getattr(args, 'no_push', False)
         self.commit_message = getattr(args, 'commit_message', None)
         self.purge_repo = getattr(args, 'purge_repo', False)
+        self.top_level = getattr(args, 'top_level', False)
         self.action = Actions(args.action)
         self.categories = args.category
         if self.categories_filter:

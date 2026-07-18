@@ -940,71 +940,119 @@ def _unmanage_one(flist_fname, normalized_path, home, repo, filelist, plugins, p
     return 0
 
 
-def list_managed_files(flist_fname, categories, home):
+def _first_level_path(path):
+    """Return the first path component (e.g. .cursor/foo -> .cursor)."""
+    if '/' not in path:
+        return path
+    return path.split('/', 1)[0]
+
+
+def _collect_managed_entries(filelist, categories):
+    """Build path -> [{categories, plugin}, ...] for list display."""
+    if not categories or categories == ['common', info.hostname]:
+        entries = {}
+        for path, instances in filelist.files.items():
+            for instance in instances:
+                entries.setdefault(path, []).append({
+                    'categories': ','.join(instance['categories']),
+                    'plugin': instance['plugin'],
+                })
+        return entries
+
+    return {
+        path: [{
+            'categories': ','.join(instance['categories']),
+            'plugin': instance['plugin'],
+        }]
+        for path, instance in filelist.activate(categories).items()
+    }
+
+
+def _existence_marker(paths, home):
+    existing = sum(1 for path in paths if os.path.exists(os.path.join(home, path)))
+    if existing == 0:
+        return '✗'
+    if existing == len(paths):
+        return '✓'
+    return '~'
+
+
+def _aggregate_instances(instances):
+    categories = sorted({inst['categories'] for inst in instances})
+    plugins = sorted({inst['plugin'] for inst in instances})
+    return ','.join(categories), ','.join(plugins)
+
+
+def _print_list_rows(entries, home, top_level, header):
+    if not entries:
+        return 0
+
+    print(header)
+    print('=' * 70)
+
+    if top_level:
+        groups = {}
+        for path, instances in entries.items():
+            root = _first_level_path(path)
+            group = groups.setdefault(root, {'paths': [], 'instances': []})
+            group['paths'].append(path)
+            group['instances'].extend(instances)
+
+        total_files = len(entries)
+        for root in sorted(groups):
+            group = groups[root]
+            exists = _existence_marker(group['paths'], home)
+            categories_str, plugin = _aggregate_instances(group['instances'])
+            count = len(group['paths'])
+            count_suffix = f' ({count} file(s))' if count > 1 else ''
+            print(f'{exists} {root:<40} [{categories_str}] ({plugin}){count_suffix}')
+
+        print('=' * 70)
+        label = 'top-level entr' + ('ies' if len(groups) != 1 else 'y')
+        print(f'Total: {len(groups)} {label}, {total_files} file(s)')
+        return 0
+
+    for path in sorted(entries):
+        instances = entries[path]
+        full_path = os.path.join(home, path)
+        exists = '✓' if os.path.exists(full_path) else '✗'
+        for instance in instances:
+            print(f'{exists} {path:<40} [{instance["categories"]}] ({instance["plugin"]})')
+
+    print('=' * 70)
+    print(f'Total: {len(entries)} file(s)')
+    return 0
+
+
+def list_managed_files(flist_fname, categories, home, top_level=False):
     """List all managed configuration files"""
     filelist = load_filelist(flist_fname)
     if filelist is None:
         return 1
-    
-    # If no categories specified, show all files
-    if not categories or categories == ['common', info.hostname]:
-        # Show all files from filelist
-        all_files = {}
-        for path, instances in filelist.files.items():
-            for instance in instances:
-                plugin = instance['plugin']
-                cats = ','.join(instance['categories'])
-                if path not in all_files:
-                    all_files[path] = []
-                all_files[path].append({
-                    'categories': cats,
-                    'plugin': plugin
-                })
-        
-        if not all_files:
-            print('No managed configuration files found.')
-            return 0
-        
-        print('Managed configuration files:')
-        print('=' * 70)
-        for path in sorted(all_files.keys()):
-            instances = all_files[path]
-            full_path = os.path.join(home, path)
-            exists = '✓' if os.path.exists(full_path) else '✗'
-            
-            for instance in instances:
-                categories_str = instance['categories']
-                plugin = instance['plugin']
-                print(f'{exists} {path:<40} [{categories_str}] ({plugin})')
-        
-        print('=' * 70)
-        print(f'Total: {len(all_files)} file(s)')
-    else:
-        # Show files for specified categories
-        try:
-            active_files = filelist.activate(categories)
-        except RuntimeError:
-            logging.error(f'Error activating categories: {categories}')
-            return 1
-        
-        if not active_files:
+
+    try:
+        entries = _collect_managed_entries(filelist, categories)
+    except RuntimeError:
+        logging.error(f'Error activating categories: {categories}')
+        return 1
+
+    if not entries:
+        if categories and categories != ['common', info.hostname]:
             print(f'No files found for categories: {", ".join(categories)}')
-            return 0
-        
-        print(f'Managed files for categories: {", ".join(categories)}')
-        print('=' * 70)
-        for path in sorted(active_files.keys()):
-            instance = active_files[path]
-            full_path = os.path.join(home, path)
-            exists = '✓' if os.path.exists(full_path) else '✗'
-            categories_str = ','.join(instance['categories'])
-            plugin = instance['plugin']
-            print(f'{exists} {path:<40} [{categories_str}] ({plugin})')
-        
-        print('=' * 70)
-        print(f'Total: {len(active_files)} file(s)')
-    
-    return 0
+        else:
+            print('No managed configuration files found.')
+        return 0
+
+    if categories and categories != ['common', info.hostname]:
+        header = f'Managed files for categories: {", ".join(categories)}'
+        if top_level:
+            header += ' (top-level)'
+    else:
+        header = 'Managed configuration files'
+        if top_level:
+            header += ' (top-level)'
+
+    return _print_list_rows(entries, home, top_level, header)
 
 
 def show_categories(flist_fname):
@@ -1715,7 +1763,9 @@ def main(args=None, cwd=os.getcwd(), home=info.home):
 
     # check for list
     if args.action == Actions.LIST:
-        return list_managed_files(flist_fname, args.categories, home)
+        return list_managed_files(
+            flist_fname, args.categories, home, top_level=args.top_level,
+        )
 
     # check for categories
     if args.action == Actions.CATEGORIES:

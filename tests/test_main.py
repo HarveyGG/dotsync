@@ -1072,6 +1072,60 @@ class TestMain:
         # Missing file should show ✗
         assert '✗' in captured.out
 
+    def test_list_top_level_groups_nested_paths(self, tmp_path, capsys):
+        home, repo = self.setup_repo(
+            tmp_path,
+            '.zshrc:zsh\n'
+            '.cursor/a.txt:cursor\n'
+            '.cursor/b.txt:cursor\n'
+            '.ssh/config:ssh\n',
+        )
+        (home / '.zshrc').touch()
+        (home / '.cursor').mkdir()
+        (home / '.cursor' / 'a.txt').touch()
+        (home / '.cursor' / 'b.txt').touch()
+        (home / '.ssh').mkdir()
+        (home / '.ssh' / 'config').touch()
+
+        assert main(args=['list', '--top-level'], cwd=str(repo), home=str(home)) == 0
+
+        captured = capsys.readouterr()
+        assert 'top-level' in captured.out
+        assert '.cursor' in captured.out
+        assert '.cursor/a.txt' not in captured.out
+        assert '.cursor/b.txt' not in captured.out
+        assert '(2 file(s))' in captured.out
+        assert 'Total: 3 top-level entries, 4 file(s)' in captured.out
+
+    def test_list_top_level_partial_existence(self, tmp_path, capsys):
+        home, repo = self.setup_repo(
+            tmp_path,
+            '.cursor/a.txt:cursor\n.cursor/b.txt:cursor\n',
+        )
+        (home / '.cursor').mkdir()
+        (home / '.cursor' / 'a.txt').touch()
+
+        assert main(args=['list', '--top-level'], cwd=str(repo), home=str(home)) == 0
+
+        captured = capsys.readouterr()
+        assert '~ .cursor' in captured.out
+
+    def test_list_top_level_with_category(self, tmp_path, capsys):
+        home, repo = self.setup_repo(
+            tmp_path,
+            '.zshrc:zsh\n.cursor/a.txt:cursor\n',
+        )
+        (home / '.zshrc').touch()
+        (home / '.cursor').mkdir()
+        (home / '.cursor' / 'a.txt').touch()
+
+        assert main(args=['list', 'cursor', '--top-level'], cwd=str(repo), home=str(home)) == 0
+
+        captured = capsys.readouterr()
+        assert '.cursor' in captured.out
+        assert '.zshrc' not in captured.out
+        assert 'Total: 1 top-level entry, 1 file(s)' in captured.out
+
     def test_commit_empty_message_handling(self, tmp_path, caplog):
         """Test commit when no valid changes to commit"""
         home, repo = self.setup_repo(tmp_path, '.testfile:test\n')
