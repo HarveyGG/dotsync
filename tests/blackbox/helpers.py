@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from tests.blackbox.conftest import Sandbox
 
 from dotsync.plugins.encrypt import key_stretch
-from tests.blackbox.conftest import DotsyncResult
+from tests.blackbox.conftest import DotsyncResult, dotsync_argv
 
 
 def run_dotsync_pexpect(
@@ -42,9 +42,10 @@ def run_dotsync_pexpect(
     response_iter = iter(responses)
     output_buffer = io.StringIO()
 
+    argv = dotsync_argv(*args)
     child = pexpect.spawn(
-        "uv",
-        ["run", "dotsync", *args],
+        argv[0],
+        argv[1:],
         cwd=work_cwd,
         env=env,
         encoding="utf-8",

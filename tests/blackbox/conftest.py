@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
@@ -17,6 +18,13 @@ GIT_AUTHOR_EMAIL = "blackbox@test.dotsync.local"
 
 # Project root (dotsync repo containing pyproject.toml).
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def dotsync_argv(*args: str) -> list[str]:
+    """CLI argv for subprocess runs: uv locally, python -m dotsync in CI."""
+    if shutil.which("uv"):
+        return ["uv", "run", "dotsync", *args]
+    return [sys.executable, "-m", "dotsync", *args]
 
 
 @dataclass
@@ -106,7 +114,7 @@ class Sandbox:
         extra_env: Optional[dict] = None,
         unset_repo: bool = False,
     ) -> DotsyncResult:
-        cmd = ["uv", "run", "dotsync", *args]
+        cmd = dotsync_argv(*args)
         env = self.env_for(home=home, repo=repo, unset_repo=unset_repo)
         if extra_env:
             env.update(extra_env)
