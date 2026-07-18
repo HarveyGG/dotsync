@@ -20,7 +20,12 @@ from dotsync.checks import safety_checks
 from dotsync.flists import Filelist
 from dotsync.git import Git, GitPullError
 from dotsync.calc_ops import CalcOps, RestoreAborted
-from dotsync.tree import materialize_symlinks, pattern_walk_root, restore_symlinks
+from dotsync.tree import (
+    materialize_symlinks,
+    pattern_walk_root,
+    restore_symlinks,
+    walk_tree,
+)
 from dotsync.plugins.plain import PlainPlugin
 from dotsync.plugins.encrypt import EncryptPlugin
 from dotsync.interaction import (
@@ -947,8 +952,15 @@ def _first_level_path(path):
     return path.split('/', 1)[0]
 
 
+def _flatten_list_categories(filelist, categories):
+    if not categories or categories == ['common', info.hostname]:
+        return None
+    expanded = [filelist.groups.get(c, [c]) for c in categories]
+    return [c for cat in expanded for c in cat]
+
+
 def _collect_managed_entries(filelist, categories):
-    """Build path -> [{categories, plugin}, ...] for list display."""
+    """Build path -> [{categories, plugin}, ...] for atomic list display."""
     if not categories or categories == ['common', info.hostname]:
         entries = {}
         for path, instances in filelist.files.items():
@@ -968,6 +980,31 @@ def _collect_managed_entries(filelist, categories):
     }
 
 
+def _collect_tree_summaries(filelist, home, categories):
+    """Summarize active @tree entries without expanding into atomic paths."""
+    flat = _flatten_list_categories(filelist, categories)
+    summaries = []
+    for tree in filelist.trees:
+        if flat is not None and not set(tree['categories']) & set(flat):
+            continue
+        pattern = tree['pattern']
+        walked = walk_tree(home, pattern)
+        paths = list(walked.keys())
+        root = pattern_walk_root(pattern) or pattern
+        if not paths:
+            exists = '✓' if os.path.exists(os.path.join(home, root)) else '✗'
+        else:
+            exists = _existence_marker(paths, home)
+        summaries.append({
+            'pattern': pattern,
+            'categories': ','.join(tree['categories']),
+            'plugin': tree['plugin'],
+            'file_count': len(paths),
+            'exists': exists,
+        })
+    return summaries
+
+
 def _existence_marker(paths, home):
     existing = sum(1 for path in paths if os.path.exists(os.path.join(home, path)))
     if existing == 0:
@@ -983,8 +1020,8 @@ def _aggregate_instances(instances):
     return ','.join(categories), ','.join(plugins)
 
 
-def _print_list_rows(entries, home, top_level, header):
-    if not entries:
+def _print_list_rows(atomic_entries, tree_summaries, home, top_level, header):
+    if not atomic_entries and not tree_summaries:
         return 0
 
     print(header)
@@ -992,13 +1029,14 @@ def _print_list_rows(entries, home, top_level, header):
 
     if top_level:
         groups = {}
-        for path, instances in entries.items():
+        for path, instances in atomic_entries.items():
             root = _first_level_path(path)
             group = groups.setdefault(root, {'paths': [], 'instances': []})
             group['paths'].append(path)
             group['instances'].extend(instances)
 
-        total_files = len(entries)
+        total_atomic = len(atomic_entries)
+
         for root in sorted(groups):
             group = groups[root]
             exists = _existence_marker(group['paths'], home)
@@ -1007,20 +1045,55 @@ def _print_list_rows(entries, home, top_level, header):
             count_suffix = f' ({count} file(s))' if count > 1 else ''
             print(f'{exists} {root:<40} [{categories_str}] ({plugin}){count_suffix}')
 
+        for tree in sorted(tree_summaries, key=lambda t: t['pattern']):
+            root = _first_level_path(tree['pattern'])
+            count_suffix = ''
+            if tree['file_count'] > 1:
+                count_suffix = f' ({tree["file_count"]} file(s), @tree)'
+            elif tree['file_count'] == 1:
+                count_suffix = ' (1 file, @tree)'
+            else:
+                count_suffix = ' (@tree)'
+            label = root if root == tree['pattern'] else tree['pattern']
+            print(
+                f'{tree["exists"]} {label:<40} '
+                f'[{tree["categories"]}] ({tree["plugin"]}, @tree){count_suffix}'
+            )
+
         print('=' * 70)
-        label = 'top-level entr' + ('ies' if len(groups) != 1 else 'y')
-        print(f'Total: {len(groups)} {label}, {total_files} file(s)')
+        label = 'top-level entr' + ('ies' if len(groups) + len(tree_summaries) != 1 else 'y')
+        tree_count = len(tree_summaries)
+        entry_count = len(groups) + tree_count
+        if tree_count:
+            print(
+                f'Total: {entry_count} {label}, {total_atomic} atomic file(s), '
+                f'{tree_count} @tree'
+            )
+        else:
+            print(f'Total: {len(groups)} {label}, {total_atomic} file(s)')
         return 0
 
-    for path in sorted(entries):
-        instances = entries[path]
+    for path in sorted(atomic_entries):
+        instances = atomic_entries[path]
         full_path = os.path.join(home, path)
         exists = '✓' if os.path.exists(full_path) else '✗'
         for instance in instances:
             print(f'{exists} {path:<40} [{instance["categories"]}] ({instance["plugin"]})')
 
+    for tree in sorted(tree_summaries, key=lambda t: t['pattern']):
+        count_suffix = f' ({tree["file_count"]} file(s))' if tree['file_count'] != 1 else ''
+        print(
+            f'{tree["exists"]} {tree["pattern"]:<40} '
+            f'[{tree["categories"]}] ({tree["plugin"]}, @tree){count_suffix}'
+        )
+
     print('=' * 70)
-    print(f'Total: {len(entries)} file(s)')
+    n_atomic = len(atomic_entries)
+    n_tree = len(tree_summaries)
+    if n_tree:
+        print(f'Total: {n_atomic + n_tree} entries ({n_atomic} atomic, {n_tree} @tree)')
+    else:
+        print(f'Total: {n_atomic} file(s)')
     return 0
 
 
@@ -1031,12 +1104,13 @@ def list_managed_files(flist_fname, categories, home, top_level=False):
         return 1
 
     try:
-        entries = _collect_managed_entries(filelist, categories)
+        atomic_entries = _collect_managed_entries(filelist, categories)
+        tree_summaries = _collect_tree_summaries(filelist, home, categories)
     except RuntimeError:
         logging.error(f'Error activating categories: {categories}')
         return 1
 
-    if not entries:
+    if not atomic_entries and not tree_summaries:
         if categories and categories != ['common', info.hostname]:
             print(f'No files found for categories: {", ".join(categories)}')
         else:
@@ -1052,7 +1126,7 @@ def list_managed_files(flist_fname, categories, home, top_level=False):
         if top_level:
             header += ' (top-level)'
 
-    return _print_list_rows(entries, home, top_level, header)
+    return _print_list_rows(atomic_entries, tree_summaries, home, top_level, header)
 
 
 def show_categories(flist_fname):

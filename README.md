@@ -89,7 +89,7 @@ macbook=shell,editor,common
 | `track <path> [category] [--encrypt] [--no-auto-update]` | Add to filelist; mirrors immediately unless `--no-auto-update` |
 | `untrack <path> [--purge-repo]` | Stop watching; home file kept |
 | `encrypt <path>` | Convert an already-tracked plain path to encrypted |
-| `list [categories] [--top-level]` | List watched paths; `--top-level` groups by first path component |
+| `list [categories] [--top-level]` | List watched paths (atomic files and `@tree` summaries, not every tree member); `--top-level` groups by first path component |
 | `categories` | Show category groups from filelist |
 | `save [categories] [-m msg] [--dry-run] [--no-push]` | Expand `@tree`, mirror home → repo, commit, push |
 | `restore [categories] [--remote URL] [--yes] [--skip-pull] [--conflict …]` | Pull (unless skipped), then repo → home; diff on conflict |
@@ -106,7 +106,7 @@ Full reference: [ReadTheDocs](https://dotsync.readthedocs.io).
 
 ## Test coverage
 
-**287 tests** total (**37** black-box E2E scenarios against the real CLI in an isolated sandbox). All scenarios below pass on **v2.0.2**.
+**290 tests** total (**37** black-box E2E scenarios against the real CLI in an isolated sandbox). All scenarios below pass on **v2.0.3**.
 
 ```bash
 uv run pytest tests/blackbox/ -v
