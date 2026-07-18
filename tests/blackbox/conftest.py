@@ -319,7 +319,7 @@ def publish_to_bare(
 
     env = sb.env_for(home=source_home, repo=work)
     subprocess.run(
-        ["uv", "run", "dotsync", "init"],
+        dotsync_argv("init"),
         cwd=str(work),
         env=env,
         check=True,
@@ -337,7 +337,7 @@ def publish_to_bare(
 
     cats = list(categories) if categories else ["common"]
     subprocess.run(
-        ["uv", "run", "dotsync", "save", "--no-push", "--non-interactive", *cats],
+        dotsync_argv("save", "--no-push", "--non-interactive", *cats),
         cwd=str(work),
         env=env,
         check=True,
