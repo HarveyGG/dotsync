@@ -3,6 +3,7 @@
 import logging
 import sys
 import os
+import re
 
 # add the directory which contains the dotsync module to the path. this will
 # only ever execute when running the __main__.py script directly since the
@@ -119,6 +120,29 @@ def check_entry_exists_in_filelist(existing_lines, normalized_path, category=Non
         if not stripped or stripped.startswith('#'):
             continue
         if stripped == new_entry.strip() or (':' in stripped and stripped.split(':')[0] == normalized_path):
+            return True
+    return False
+
+
+def format_tree_line(pattern, category, encrypt=False):
+    """Format a @tree filelist entry."""
+    plugin_suffix = '|encrypt' if encrypt else ''
+    return f'@tree:{pattern}:{category}{plugin_suffix}\n'
+
+
+def check_tree_exists_in_filelist(existing_lines, pattern, category):
+    """Check if a @tree entry with the same pattern and category already exists."""
+    for line in existing_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#') or not stripped.startswith('@tree:'):
+            continue
+        rest = stripped[len('@tree:'):]
+        split = re.split('[:|]', rest)
+        line_pattern = split[0]
+        line_categories = ['common']
+        if len(split) >= 2 and ':' in rest:
+            line_categories = split[1].split(',')
+        if line_pattern == pattern and category in line_categories:
             return True
     return False
 
@@ -498,63 +522,52 @@ def add_to_filelist(flist_fname, filepath, category, home, dry_run, verbose_leve
             return 1
     
     if os.path.isdir(full_path):
-        from dotsync.tree import DIR_SKIP
-        paths_to_add = []
-        for root, dirs, files in os.walk(full_path):
-            dirs[:] = [d for d in dirs if d not in DIR_SKIP]
-            for f in files:
-                if f in SYSTEM_FILES:
-                    continue
-                abs_f = os.path.join(root, f)
-                rel = os.path.relpath(abs_f, home)
-                if not rel.startswith('.'):
-                    rel = '.' + rel
-                paths_to_add.append(rel)
-        if not paths_to_add:
-            logging.warning(f'No files found under directory {filepath}')
-            return 1
-        new_entries = []
-        for p in paths_to_add:
-            if check_entry_exists_in_filelist(existing_lines, p, category):
-                logging.debug(f'Already in filelist: {p}')
-                continue
-            new_entries.append((p, f'{p}:{category}{plugin_suffix}\n'))
-            existing_lines.append(f'{p}:{category}{plugin_suffix}\n')
-        if not new_entries:
-            logging.warning(f'All files under {filepath} are already in filelist')
+        tree_line = format_tree_line(normalized_path, category, encrypt)
+        if check_tree_exists_in_filelist(existing_lines, normalized_path, category):
+            logging.warning(
+                f'Tree entry already exists in filelist: @tree:{normalized_path}:{category}'
+            )
             return 1
         if dry_run:
-            for p, _ in new_entries:
-                logging.info(f'[DRY RUN] Would add to filelist: {p}:{category}{plugin_suffix}')
+            logging.info(
+                f'[DRY RUN] Would add to filelist: @tree:{normalized_path}:{category}{plugin_suffix}'
+            )
             return 0
         with open(flist_fname, 'a') as f:
             if existing_lines and not existing_lines[-1].endswith('\n'):
                 f.write('\n')
-            for p, entry in new_entries:
-                f.write(entry)
-                logging.info(f'Added to filelist: {p}:{category}{plugin_suffix}')
+            f.write(tree_line)
+        logging.info(f'Added to filelist: @tree:{normalized_path}:{category}{plugin_suffix}')
         if auto_update and not dry_run and repo and plugins is not None and plugin_dirs is not None:
-            logging.info('Auto-updating files...')
+            logging.info('Auto-updating tree...')
             try:
-                plugin_name = 'encrypt' if encrypt else 'plain'
-                new_only = {p: {'categories': [category], 'plugin': plugin_name} for p, _ in new_entries}
-                manifest = {plugin_name: [os.path.join(category, p) for p, _ in new_entries]}
                 filelist_obj = Filelist(flist_fname)
-                from dotsync.args import Arguments
-                args = Arguments(['update', category, '--non-interactive'])
-                update_files(
-                    repo, filelist_obj, new_only, manifest, plugins, plugin_dirs, home, args,
+                categories = [category]
+                update_args = Arguments(['update', category, '--non-interactive'])
+                active_filelist = prepare_active_filelist(
+                    filelist_obj, home, categories, plugin_dirs, from_repo=False,
                 )
+                manifest = filelist_obj.build_save_manifest(home, categories)
+                if update_files(
+                    repo, filelist_obj, active_filelist, manifest, plugins, plugin_dirs,
+                    home, update_args,
+                ) != 0:
+                    return 1
                 restore_args = Arguments(['restore', category, '--non-interactive', '--skip-pull'])
-                restore_files(
-                    repo, filelist_obj, new_only, manifest, plugins, plugin_dirs, home, restore_args,
+                restore_manifest = filelist_obj.build_restore_manifest(
+                    plugin_dirs, categories, repo,
                 )
-                logging.info('Files synced and linked successfully')
+                if restore_files(
+                    repo, filelist_obj, active_filelist, restore_manifest, plugins,
+                    plugin_dirs, home, restore_args,
+                ) != 0:
+                    return 1
+                logging.info('Tree synced successfully')
             except Exception as e:
                 logging.error(f'Failed to auto-update: {e}')
-                logging.info(f'Run "dotsync update {category}" to sync the files')
+                logging.info(f'Run "dotsync save {category}" to sync the tree')
         else:
-            logging.info(f'Run "dotsync update {category}" to sync the files')
+            logging.info(f'Run "dotsync save {category}" to sync the tree')
         return 0
     
     # Single file: check if already in filelist

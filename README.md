@@ -77,8 +77,8 @@ Watch rules live in `~/.dotfiles/filelist`:
 macbook=shell,editor,common
 ```
 
-- **Atomic paths** — single files (or expanded directory contents when added via `track` on a directory).
-- **`@tree`** — dynamic membership; new files under the pattern are picked up on the next `save`. Globs supported (`*`, `?`, `[…]`).
+- **Atomic paths** — single files tracked with `dotsync track <file>`.
+- **`@tree`** — whole directories; `dotsync track <dir>` adds a `@tree` line. New files under the pattern are picked up on the next `save`. Globs supported (`*`, `?`, `[…]`).
 - **Symlinks inside trees** — targets are materialized into the repo (internal links keep layout; external targets go under `.dotsync/materialized/`).
 
 ## Commands
@@ -106,7 +106,7 @@ Full reference: [ReadTheDocs](https://dotsync.readthedocs.io).
 
 ## Test coverage
 
-**291 tests** total (**37** black-box E2E scenarios against the real CLI in an isolated sandbox). All scenarios below pass on **v2.0.4**.
+**295 tests** total (**37** black-box E2E scenarios against the real CLI in an isolated sandbox). All scenarios below pass on **v2.0.4**.
 
 ```bash
 uv run pytest tests/blackbox/ -v

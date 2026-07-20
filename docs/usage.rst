@@ -98,7 +98,12 @@ Primary actions
    Example::
 
       dotsync track ~/.zshrc shell
+      dotsync track ~/.config/nvim editor
       dotsync track --encrypt ~/.ssh/config tools
+
+   Tracking a **directory** adds a single ``@tree:path:category`` line (not one
+   entry per file). Use ``@tree`` in ``filelist`` directly for globs or manual
+   setup; ``track`` on a directory is equivalent to appending ``@tree:…``.
 
 .. option:: untrack
 

@@ -747,7 +747,7 @@ class TestMain:
         assert not repo_file.exists()
 
     def test_add_directory_auto_update_only_new_entries(self, tmp_path, monkeypatch, caplog):
-        """add dir: auto-update only affects newly added files, not existing category entries"""
+        """track dir: adds @tree line and auto-updates tree without breaking existing entries"""
         home, repo = self.setup_repo(tmp_path, '.existing:ssh\n')
         (home / '.existing').write_text('old')
         (home / '.ssh').mkdir()
@@ -761,11 +761,63 @@ class TestMain:
         monkeypatch.setattr('builtins.input', lambda p=None: (input_calls.append(p) or 'y'))
         ret = main(args=['add', '.ssh'], cwd=str(repo), home=str(home))
         assert ret == 0
-        assert '.ssh/config' in (repo / 'filelist').read_text()
+        flist = (repo / 'filelist').read_text()
+        assert '@tree:.ssh:ssh' in flist
+        assert '.ssh/config:ssh' not in flist
         assert (home / '.ssh' / 'config').is_file()
         assert not (home / '.ssh' / 'config').is_symlink()
         assert (home / '.existing').is_file()
         assert not (home / '.existing').is_symlink()
+
+    def test_track_directory_adds_tree_line(self, tmp_path, monkeypatch):
+        """track on directory adds single @tree line, not atomic file entries"""
+        home, repo = self.setup_repo(tmp_path, '')
+        ssh_dir = home / '.ssh'
+        ssh_dir.mkdir()
+        (ssh_dir / 'config').write_text('host *')
+        (ssh_dir / 'known_hosts').write_text('github.com ssh-ed25519 ...')
+        monkeypatch.setattr('builtins.input', lambda p=None: 'y')
+        assert main(args=['track', '.ssh', 'ssh'], cwd=str(repo), home=str(home)) == 0
+        flist = (repo / 'filelist').read_text()
+        assert '@tree:.ssh:ssh' in flist
+        assert '.ssh/config:ssh' not in flist
+        assert '.ssh/known_hosts:ssh' not in flist
+        assert (repo / 'dotfiles' / 'plain' / 'ssh' / '.ssh' / 'config').exists()
+
+    def test_track_directory_encrypt_adds_tree_encrypt(self, tmp_path, monkeypatch):
+        """track --encrypt on directory adds @tree:...|encrypt"""
+        home, repo = self.setup_repo(tmp_path, '')
+        secret_dir = home / '.secrets'
+        secret_dir.mkdir()
+        (secret_dir / 'key').write_text('secret')
+        monkeypatch.setattr('getpass.getpass', lambda prompt: 'secret123')
+        monkeypatch.setattr('builtins.input', lambda p=None: 'y')
+        assert main(args=['track', '--encrypt', '.secrets', 'private'],
+                    cwd=str(repo), home=str(home)) == 0
+        flist = (repo / 'filelist').read_text()
+        assert '@tree:.secrets:private|encrypt' in flist
+        assert '.secrets/key:private' not in flist
+
+    def test_track_directory_duplicate_tree_warns(self, tmp_path, monkeypatch, caplog):
+        """tracking same directory twice warns and returns non-zero"""
+        home, repo = self.setup_repo(tmp_path, '@tree:.ssh:ssh\n')
+        (home / '.ssh').mkdir()
+        (home / '.ssh' / 'config').write_text('host *')
+        monkeypatch.setattr('builtins.input', lambda p=None: 'y')
+        ret = main(args=['track', '.ssh', 'ssh'], cwd=str(repo), home=str(home))
+        assert ret == 1
+        assert 'already exists' in caplog.text.lower()
+        assert (repo / 'filelist').read_text().count('@tree:.ssh:ssh') == 1
+
+    def test_track_empty_directory_adds_tree(self, tmp_path, monkeypatch):
+        """track on empty directory still adds @tree line"""
+        home, repo = self.setup_repo(tmp_path, '')
+        empty_dir = home / '.config' / 'emptyapp'
+        empty_dir.mkdir(parents=True)
+        monkeypatch.setattr('builtins.input', lambda p=None: 'y')
+        assert main(args=['track', '.config/emptyapp', 'tools'],
+                    cwd=str(repo), home=str(home)) == 0
+        assert '@tree:.config/emptyapp:tools' in (repo / 'filelist').read_text()
 
     # ------------------------------------------------------------------------------
     # Additional tests for restore command
