@@ -1014,6 +1014,11 @@ def _existence_marker(paths, home):
     return '~'
 
 
+def _format_list_kind_storage(kind, plugin):
+    """Return list metadata showing kind (file|tree) and storage (plain|encrypt)."""
+    return f'({kind}, {plugin})'
+
+
 def _aggregate_instances(instances):
     categories = sorted({inst['categories'] for inst in instances})
     plugins = sorted({inst['plugin'] for inst in instances})
@@ -1043,21 +1048,19 @@ def _print_list_rows(atomic_entries, tree_summaries, home, top_level, header):
             categories_str, plugin = _aggregate_instances(group['instances'])
             count = len(group['paths'])
             count_suffix = f' ({count} file(s))' if count > 1 else ''
-            print(f'{exists} {root:<40} [{categories_str}] ({plugin}){count_suffix}')
+            meta = _format_list_kind_storage('file', plugin)
+            print(f'{exists} {root:<40} [{categories_str}] {meta}{count_suffix}')
 
         for tree in sorted(tree_summaries, key=lambda t: t['pattern']):
             root = _first_level_path(tree['pattern'])
             count_suffix = ''
             if tree['file_count'] > 1:
-                count_suffix = f' ({tree["file_count"]} file(s), @tree)'
-            elif tree['file_count'] == 1:
-                count_suffix = ' (1 file, @tree)'
-            else:
-                count_suffix = ' (@tree)'
+                count_suffix = f' ({tree["file_count"]} file(s))'
             label = root if root == tree['pattern'] else tree['pattern']
+            meta = _format_list_kind_storage('tree', tree['plugin'])
             print(
                 f'{tree["exists"]} {label:<40} '
-                f'[{tree["categories"]}] ({tree["plugin"]}, @tree){count_suffix}'
+                f'[{tree["categories"]}] {meta}{count_suffix}'
             )
 
         print('=' * 70)
@@ -1066,8 +1069,8 @@ def _print_list_rows(atomic_entries, tree_summaries, home, top_level, header):
         entry_count = len(groups) + tree_count
         if tree_count:
             print(
-                f'Total: {entry_count} {label}, {total_atomic} atomic file(s), '
-                f'{tree_count} @tree'
+                f'Total: {entry_count} {label}, {total_atomic} file(s), '
+                f'{tree_count} tree'
             )
         else:
             print(f'Total: {len(groups)} {label}, {total_atomic} file(s)')
@@ -1078,20 +1081,22 @@ def _print_list_rows(atomic_entries, tree_summaries, home, top_level, header):
         full_path = os.path.join(home, path)
         exists = '✓' if os.path.exists(full_path) else '✗'
         for instance in instances:
-            print(f'{exists} {path:<40} [{instance["categories"]}] ({instance["plugin"]})')
+            meta = _format_list_kind_storage('file', instance['plugin'])
+            print(f'{exists} {path:<40} [{instance["categories"]}] {meta}')
 
     for tree in sorted(tree_summaries, key=lambda t: t['pattern']):
-        count_suffix = f' ({tree["file_count"]} file(s))' if tree['file_count'] != 1 else ''
+        count_suffix = f' ({tree["file_count"]} file(s))' if tree['file_count'] > 1 else ''
+        meta = _format_list_kind_storage('tree', tree['plugin'])
         print(
             f'{tree["exists"]} {tree["pattern"]:<40} '
-            f'[{tree["categories"]}] ({tree["plugin"]}, @tree){count_suffix}'
+            f'[{tree["categories"]}] {meta}{count_suffix}'
         )
 
     print('=' * 70)
     n_atomic = len(atomic_entries)
     n_tree = len(tree_summaries)
     if n_tree:
-        print(f'Total: {n_atomic + n_tree} entries ({n_atomic} atomic, {n_tree} @tree)')
+        print(f'Total: {n_atomic + n_tree} entries ({n_atomic} file, {n_tree} tree)')
     else:
         print(f'Total: {n_atomic} file(s)')
     return 0

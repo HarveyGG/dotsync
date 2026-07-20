@@ -1141,11 +1141,12 @@ class TestMain:
 
         captured = capsys.readouterr()
         assert '.ssh' in captured.out
-        assert '@tree' in captured.out
+        assert '(tree, plain)' in captured.out
+        assert '(file, plain)' in captured.out
         assert '(2 file(s))' in captured.out
         assert '.ssh/config' not in captured.out
         assert '.ssh/id_rsa' not in captured.out
-        assert 'Total: 2 entries (1 atomic, 1 @tree)' in captured.out
+        assert 'Total: 2 entries (1 file, 1 tree)' in captured.out
 
     def test_list_top_level_shows_tree_summary(self, tmp_path, capsys):
         home, repo = self.setup_repo(
@@ -1162,9 +1163,9 @@ class TestMain:
         captured = capsys.readouterr()
         assert '.zshrc' in captured.out
         assert '.ssh' in captured.out
-        assert '@tree' in captured.out
+        assert '(tree, plain)' in captured.out
         assert '.ssh/config' not in captured.out
-        assert 'Total: 2 top-level entries, 1 atomic file(s), 1 @tree' in captured.out
+        assert 'Total: 2 top-level entries, 1 file(s), 1 tree' in captured.out
 
     def test_list_tree_filtered_by_category(self, tmp_path, capsys):
         home, repo = self.setup_repo(
@@ -1180,8 +1181,24 @@ class TestMain:
 
         captured = capsys.readouterr()
         assert '.ssh' in captured.out
-        assert '@tree' in captured.out
+        assert '(tree, plain)' in captured.out
         assert '.zshrc' not in captured.out
+
+    def test_list_shows_encrypt_storage(self, tmp_path, capsys):
+        home, repo = self.setup_repo(
+            tmp_path,
+            '.secret:private|encrypt\n@tree:.gnupg:private|encrypt\n',
+        )
+        (home / '.secret').write_text('data')
+        gnupg = home / '.gnupg'
+        gnupg.mkdir()
+        (gnupg / 'gpg.conf').write_text('conf')
+
+        assert main(args=['list'], cwd=str(repo), home=str(home)) == 0
+
+        captured = capsys.readouterr()
+        assert '(file, encrypt)' in captured.out
+        assert '(tree, encrypt)' in captured.out
 
     def test_commit_empty_message_handling(self, tmp_path, caplog):
         """Test commit when no valid changes to commit"""
