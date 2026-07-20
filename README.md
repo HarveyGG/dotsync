@@ -106,7 +106,7 @@ Full reference: [ReadTheDocs](https://dotsync.readthedocs.io).
 
 ## Test coverage
 
-**295 tests** total (**37** black-box E2E scenarios against the real CLI in an isolated sandbox). All scenarios below pass on **v2.0.4**.
+**295 tests** total (**37** black-box E2E scenarios against the real CLI in an isolated sandbox). All scenarios below pass on **v2.0.5**.
 
 ```bash
 uv run pytest tests/blackbox/ -v
