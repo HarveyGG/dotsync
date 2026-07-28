@@ -1,8 +1,10 @@
 import os
+import re
 import subprocess
 import shlex
 import logging
 import enum
+from collections import Counter
 
 
 class GitPullError(Exception):
@@ -17,6 +19,51 @@ class FileState(enum.Enum):
     COPIED = 'C'
     UPDATED = 'U'
     UNTRACKED = '?'
+
+
+MAX_PATHS_IN_COMMIT_MESSAGE = 3
+_DOTFILES_CATEGORY_RE = re.compile(
+    r'^dotfiles/(?:plain|encrypt)/([^/]+)/'
+)
+
+
+def _commit_path_label(path):
+    """Shorten repo paths for commit messages."""
+    match = _DOTFILES_CATEGORY_RE.match(path)
+    if match:
+        return path[match.end():]
+    if path.startswith('dotfiles/'):
+        return path[len('dotfiles/'):]
+    return path
+
+
+def _infer_dotfiles_category(paths):
+    categories = set()
+    for path in paths:
+        match = _DOTFILES_CATEGORY_RE.match(path)
+        if match:
+            categories.add(match.group(1))
+    if len(categories) == 1:
+        return categories.pop()
+    return None
+
+
+def _format_change_counts(changes):
+    order = (
+        FileState.ADDED,
+        FileState.MODIFIED,
+        FileState.DELETED,
+        FileState.RENAMED,
+        FileState.COPIED,
+        FileState.UPDATED,
+    )
+    counts = Counter(state for state, _ in changes)
+    parts = []
+    for state in order:
+        count = counts.get(state, 0)
+        if count:
+            parts.append(f'{count} {state.name.lower()}')
+    return ', '.join(parts)
 
 
 class Git:
@@ -138,7 +185,7 @@ class Git:
         return bool(self.run('git status -s --porcelain').strip())
 
     def gen_commit_message(self, ignore=[]):
-        mods = []
+        changes = []
         for stat in self.status():
             state, path = stat
             # skip all untracked files since they will not be committed
@@ -147,13 +194,26 @@ class Git:
             if any((path.startswith(p) for p in ignore)):
                 logging.debug(f'ignoring {path} from commit message')
                 continue
-            mods.append(f'{state.name.lower()} {path}')
-        
-        # Return empty string if no modifications after filtering
-        if not mods:
+            changes.append((state, path))
+
+        if not changes:
             return ''
-        
-        return ', '.join(mods).capitalize()
+
+        if len(changes) == 1:
+            state, path = changes[0]
+            return f'{state.name.capitalize()} {_commit_path_label(path)}'
+
+        if len(changes) <= MAX_PATHS_IN_COMMIT_MESSAGE:
+            parts = [
+                f'{state.name.lower()} {_commit_path_label(path)}'
+                for state, path in changes
+            ]
+            return ', '.join(parts).capitalize()
+
+        category = _infer_dotfiles_category(path for _, path in changes)
+        prefix = f'Update {category}' if category else 'Update dotfiles'
+        summary = _format_change_counts(changes)
+        return f'{prefix}: {len(changes)} files ({summary})'
 
     def commits(self):
         return self.run('git log -1 --pretty=%s').strip().split('\n')

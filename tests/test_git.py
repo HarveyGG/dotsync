@@ -105,6 +105,25 @@ class TestGit:
         self.touch(repo, 'new3')
         assert git.gen_commit_message() == 'Added new, added new2'
 
+    def test_gen_commit_msg_summary(self, tmp_path):
+        git, repo = self.setup_git(tmp_path)
+        base = os.path.join(repo, 'dotfiles', 'plain', 'skills', '.cursor', 'skills')
+        os.makedirs(base, exist_ok=True)
+        for name in ('a.md', 'b.md', 'c.md', 'd.md'):
+            open(os.path.join(base, name), 'w').close()
+        git.add()
+        assert git.gen_commit_message() == (
+            'Update skills: 4 files (4 added)'
+        )
+
+    def test_gen_commit_msg_dotfiles_short_path(self, tmp_path):
+        git, repo = self.setup_git(tmp_path)
+        base = os.path.join(repo, 'dotfiles', 'plain', 'skills', 'execute-work')
+        os.makedirs(base, exist_ok=True)
+        open(os.path.join(base, 'SKILL.md'), 'w').close()
+        git.add()
+        assert git.gen_commit_message() == 'Added execute-work/SKILL.md'
+
     def test_status_untracked(self, tmp_path):
         git, repo = self.setup_git(tmp_path)
         self.touch(repo, 'untracked')
