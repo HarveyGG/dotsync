@@ -21,9 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def dotsync_argv(*args: str) -> list[str]:
-    """CLI argv for subprocess runs: uv locally, python -m dotsync in CI."""
-    if shutil.which("uv"):
-        return ["uv", "run", "dotsync", *args]
+    """CLI argv: run dotsync as a module under the same interpreter as pytest."""
     return [sys.executable, "-m", "dotsync", *args]
 
 
@@ -67,6 +65,11 @@ class Sandbox:
                 "XDG_CACHE_HOME": str(home / ".cache"),
                 "XDG_DATA_HOME": str(home / ".local" / "share"),
             }
+        )
+        project_root = str(PROJECT_ROOT)
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = (
+            project_root if not existing else f"{project_root}{os.pathsep}{existing}"
         )
         return env
 

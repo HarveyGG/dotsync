@@ -26,6 +26,7 @@ from dotsync.tree import (
     pattern_walk_root,
     restore_symlinks,
     walk_tree,
+    watched_tree_paths,
 )
 from dotsync.plugins.plain import PlainPlugin
 from dotsync.plugins.encrypt import EncryptPlugin
@@ -33,6 +34,7 @@ from dotsync.interaction import (
     collect_filelist_categories,
     prompt_category_selection,
 )
+from dotsync.regression import collect_content_regressions, handle_content_regressions
 import dotsync.info as info
 
 
@@ -59,7 +61,11 @@ def load_filelist(flist_fname):
     """Load and parse filelist, return Filelist object or None if error"""
     if not ensure_filelist_exists(flist_fname):
         return None
-    return Filelist(flist_fname)
+    try:
+        return Filelist(flist_fname)
+    except ValueError as e:
+        logging.error(str(e))
+        return None
 
 
 def normalize_filepath(filepath, home):
@@ -1218,11 +1224,7 @@ def materialize_tree_symlinks(filelist_obj, home, repo, plugin_dirs, categories)
 
         plugin_name = tree['plugin']
         plugin_dir = plugin_dirs[plugin_name]
-        watched = filelist_obj.expand_trees(home, categories)
-        watched = {
-            path: info for path, info in watched.items()
-            if set(info['categories']) & set(tree['categories'])
-        }
+        watched = watched_tree_paths(home, tree)
         if not watched:
             continue
 
@@ -1265,6 +1267,20 @@ def update_files(repo, filelist_obj, active_filelist, manifest, plugins, plugin_
     """Update files from home to repository"""
     clean_ops = []
     policy = from_args(args)
+
+    regressions = collect_content_regressions(
+        filelist_obj,
+        home,
+        repo,
+        plugin_dirs,
+        args.categories,
+        active_filelist,
+        plugins,
+    )
+    if handle_content_regressions(
+        regressions, policy.force_content_regression
+    ) != 0:
+        return 1
 
     symlink_canonicals = materialize_tree_symlinks(
         filelist_obj, home, repo, plugin_dirs, args.categories
