@@ -20,6 +20,8 @@ class TreeEntry:
     pattern: str
     categories: List[str]
     plugin: str = 'plain'
+    min_bytes: Optional[int] = None
+    guard: Optional[str] = None
 
 
 def pattern_walk_root(pattern: str) -> str:
@@ -113,6 +115,63 @@ def _canonical_repo_path(
         return mirror_repo_path(category, resolved_rel)
     basename = os.path.basename(resolved_abs) or 'content'
     return external_materialized_path(home_rel, basename)
+
+
+def watched_tree_paths(home: str, tree: dict) -> Dict[str, dict]:
+    """Home paths for a single @tree entry (pattern-scoped metadata)."""
+    walked = walk_tree(home, tree['pattern'])
+    meta = {
+        'categories': tree['categories'],
+        'plugin': tree['plugin'],
+    }
+    if 'min_bytes' in tree:
+        meta['min_bytes'] = tree['min_bytes']
+    if 'guard' in tree:
+        meta['guard'] = tree['guard']
+    return {
+        path: {**meta, 'kind': node['kind']}
+        for path, node in walked.items()
+    }
+
+
+def plan_tree_symlink_materializations(
+    home: str,
+    repo: str,
+    watched_paths: Dict[str, dict],
+    category: str,
+    tree_pattern: str,
+    dotsync_repo: Optional[str] = None,
+):
+    """Yield (home_rel, source_abs, dest_repo_path) for symlink targets that would be copied."""
+    if dotsync_repo is None:
+        dotsync_repo = repo
+
+    copied: Set[str] = set()
+
+    for home_rel in sorted(watched_paths):
+        info = watched_paths[home_rel]
+        if info.get('kind') != 'symlink':
+            continue
+
+        abs_link = os.path.join(home, home_rel)
+        if not os.path.islink(abs_link):
+            continue
+
+        resolved_abs, resolved_rel = resolve_symlink_chain(home, home_rel)
+        if resolved_abs is None or not os.path.isfile(resolved_abs):
+            continue
+
+        canonical = _canonical_repo_path(
+            home_rel, resolved_rel, resolved_abs, category, tree_pattern, watched_paths
+        )
+        if canonical in copied:
+            continue
+        if canonical.startswith('.dotsync/'):
+            dest = os.path.join(dotsync_repo, canonical)
+        else:
+            dest = os.path.join(repo, canonical)
+        copied.add(canonical)
+        yield home_rel, resolved_abs, dest
 
 
 def materialize_symlinks(

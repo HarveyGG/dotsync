@@ -1,7 +1,7 @@
 import logging
 import os
-import re
 from dataclasses import asdict
+from typing import List, Optional, Tuple
 
 import dotsync.info as info
 from dotsync.tree import (
@@ -11,6 +11,81 @@ from dotsync.tree import (
     pattern_walk_root,
     walk_tree,
 )
+
+
+def _parse_entry_line(line: str) -> Tuple[str, str, bool]:
+    if ':' in line:
+        path, tail = line.split(':', 1)
+        return path, tail, True
+    if '|' in line:
+        path, tail = line.split('|', 1)
+        return path, '|' + tail, False
+    return line, '', False
+
+
+def _parse_tail(
+    tail: str,
+    has_categories: bool,
+) -> Tuple[List[str], str, Optional[int], Optional[str]]:
+    categories = ['common']
+    plugin = 'plain'
+    min_bytes: Optional[int] = None
+    guard: Optional[str] = None
+
+    if not tail:
+        return categories, plugin, min_bytes, guard
+
+    parts = tail.split('|')
+    mod_start = 0
+    if has_categories and parts and parts[0] != '':
+        categories = parts[0].split(',')
+        mod_start = 1
+    elif not has_categories and tail.startswith('|'):
+        parts = [p for p in tail.split('|') if p != '']
+
+    for tok in parts[mod_start:]:
+        if not tok:
+            continue
+        if tok == 'encrypt':
+            plugin = 'encrypt'
+        elif tok.startswith('min-bytes='):
+            raw = tok.split('=', 1)[1]
+            try:
+                value = int(raw)
+            except ValueError:
+                _invalid_modifier(tok)
+            if value <= 0:
+                _invalid_modifier(tok)
+            min_bytes = value
+        elif tok.startswith('guard='):
+            guard_name = tok.split('=', 1)[1]
+            if guard_name != 'nonempty':
+                _invalid_modifier(tok)
+            guard = 'nonempty'
+        else:
+            _invalid_modifier(tok)
+
+    return categories, plugin, min_bytes, guard
+
+
+def _invalid_modifier(tok: str) -> None:
+    message = f'Invalid filelist modifier: {tok}'
+    logging.error(message)
+    raise ValueError(message)
+
+
+def _filelist_entry(
+    categories: List[str],
+    plugin: str,
+    min_bytes: Optional[int],
+    guard: Optional[str],
+) -> dict:
+    data = {'categories': categories, 'plugin': plugin}
+    if min_bytes is not None:
+        data['min_bytes'] = min_bytes
+    if guard is not None:
+        data['guard'] = guard
+    return data
 
 
 class Filelist:
@@ -32,50 +107,46 @@ class Filelist:
                     self._parse_tree_line(line[len('@tree:'):])
                     continue
 
-                # group
-                if '=' in line:
-                    group, categories = line.split('=')
+                # group (not pipe modifiers like |min-bytes=N or |guard=nonempty)
+                if (
+                    '=' in line
+                    and ':' not in line
+                    and '|' not in line
+                    and not line.startswith('.')
+                    and not line.startswith('@')
+                ):
+                    group, categories = line.split('=', 1)
                     categories = categories.split(',')
                     if group == info.hostname:
                         categories.append(info.hostname)
                     self.groups[group] = categories
                 # file
                 else:
-                    split = re.split('[:|]', line)
-
-                    path, categories, plugin = split[0], ['common'], 'plain'
-                    if len(split) >= 2:
-                        if ':' in line:
-                            categories = split[1].split(',')
-                        else:
-                            plugin = split[1]
-                    if len(split) >= 3:
-                        plugin = split[2]
-
+                    path, tail, has_cats = _parse_entry_line(line)
+                    categories, plugin, min_bytes, guard = _parse_tail(tail, has_cats)
                     if path not in self.files:
                         self.files[path] = []
-                    self.files[path].append({
-                        'categories': categories,
-                        'plugin': plugin
-                    })
+                    self.files[path].append(
+                        _filelist_entry(categories, plugin, min_bytes, guard)
+                    )
 
     def _parse_tree_line(self, line):
-        split = re.split('[:|]', line)
-
-        pattern, categories, plugin = split[0], ['common'], 'plain'
-        if len(split) >= 2:
-            if ':' in line:
-                categories = split[1].split(',')
-            else:
-                plugin = split[1]
-        if len(split) >= 3:
-            plugin = split[2]
-
-        self.trees.append(asdict(TreeEntry(
-            pattern=pattern,
-            categories=categories,
-            plugin=plugin,
-        )))
+        pattern, tail, has_cats = _parse_entry_line(line)
+        categories, plugin, min_bytes, guard = _parse_tail(tail, has_cats)
+        tree_kwargs = {
+            'pattern': pattern,
+            'categories': categories,
+            'plugin': plugin,
+        }
+        if min_bytes is not None:
+            tree_kwargs['min_bytes'] = min_bytes
+        if guard is not None:
+            tree_kwargs['guard'] = guard
+        tree_dict = asdict(TreeEntry(**tree_kwargs))
+        for optional in ('min_bytes', 'guard'):
+            if tree_dict.get(optional) is None:
+                tree_dict.pop(optional, None)
+        self.trees.append(tree_dict)
 
     def activate(self, categories):
         # expand groups
@@ -113,11 +184,16 @@ class Filelist:
                                   f'{path}: {files[path]["categories"]} '
                                   f'and {tree["categories"]}')
                     raise RuntimeError
-                files[path] = {
+                entry = {
                     'categories': tree['categories'],
                     'plugin': tree['plugin'],
                     'kind': node['kind'],
                 }
+                if 'min_bytes' in tree:
+                    entry['min_bytes'] = tree['min_bytes']
+                if 'guard' in tree:
+                    entry['guard'] = tree['guard']
+                files[path] = entry
 
         return files
 
@@ -135,12 +211,12 @@ class Filelist:
         else:
             trees = self.expand_trees(home, categories)
 
-        for path, info in trees.items():
+        for path, tree_info in trees.items():
             if path in files:
                 logging.error('path active as both atomic file and tree entry: '
                               f'{path}')
                 raise RuntimeError
-            files[path] = info
+            files[path] = tree_info
 
         return files
 
@@ -149,11 +225,11 @@ class Filelist:
         manifest = self.manifest()
         tree_files = self.expand_trees(home, categories)
 
-        for path, info in tree_files.items():
-            if info.get('kind') == 'symlink':
+        for path, tree_info in tree_files.items():
+            if tree_info.get('kind') == 'symlink':
                 continue
-            plugin = info['plugin']
-            for category in self._expand_category_names(info['categories']):
+            plugin = tree_info['plugin']
+            for category in self._expand_category_names(tree_info['categories']):
                 manifest.setdefault(plugin, []).append(os.path.join(category, path))
 
         if symlink_canonicals:
@@ -200,10 +276,10 @@ class Filelist:
 
         for plugin_name, plugin_dir in plugin_dirs.items():
             tree_files = expand_trees_from_repo(plugin_dir, self.trees, active_cats)
-            for path, info in tree_files.items():
-                if info['plugin'] != plugin_name:
+            for path, tree_info in tree_files.items():
+                if tree_info['plugin'] != plugin_name:
                     continue
-                for category in self._expand_category_names(info['categories']):
+                for category in self._expand_category_names(tree_info['categories']):
                     manifest.setdefault(plugin_name, []).append(
                         os.path.join(category, path)
                     )

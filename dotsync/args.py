@@ -118,13 +118,20 @@ class Arguments:
                             help='skip git pull before restore (unsafe)')
         parser.add_argument('--no-push', action='store_true',
                             help='commit locally but do not push to remote')
+        parser.add_argument('--force-content-regression', action='store_true',
+                            help='allow save despite content regression detection')
+        parser.add_argument('--accept-regressions', action='store_true',
+                            help='alias for --force-content-regression')
         parser.add_argument('-m', '--message', dest='commit_message',
                             default=None,
                             help='commit message for save command')
         parser.add_argument('--top-level', action='store_true',
                             help='for list: show one row per first-level path root')
 
-        args = parser.parse_args(args)
+        if hasattr(parser, 'parse_intermixed_args'):
+            args = parser.parse_intermixed_args(args)
+        else:
+            args = parser.parse_args(args)
         
         # For init action, category[0] is optional directory path
         if args.action == 'init':
@@ -189,6 +196,10 @@ class Arguments:
         self.no_auto_update = getattr(args, 'no_auto_update', False)
         self.skip_pull = getattr(args, 'skip_pull', False)
         self.no_push = getattr(args, 'no_push', False)
+        self.force_content_regression = (
+            getattr(args, 'force_content_regression', False)
+            or getattr(args, 'accept_regressions', False)
+        )
         self.commit_message = getattr(args, 'commit_message', None)
         self.purge_repo = getattr(args, 'purge_repo', False)
         self.top_level = getattr(args, 'top_level', False)
